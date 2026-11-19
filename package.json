@@ -1,0 +1,35 @@
+{
+  "name": "hostly",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hospedagem multiusuário de projetos HTML estáticos",
+  "main": "src/server.js",
+  "scripts": {
+    "build": "vite build",
+    "dev:web": "vite",
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
+    "pg": "^8.16.3",
+    "unzipper": "^0.12.3"
+  },
+  "devDependencies": {
+    "@primer/octicons-react": "^19.42.0",
+    "@primer/primitives": "^11.10.0",
+    "@primer/react": "^38.46.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-is": "^19.3.1",
+    "vite": "^8.3.8"
+  }
+}

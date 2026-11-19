@@ -1,0 +1,58 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 1591
+      DATABASE_URL: postgres://${POSTGRES_USER:-hostly}:${POSTGRES_PASSWORD:-change-me-now}@db:5432/${POSTGRES_DB:-hostly}
+      JWT_SECRET: ${JWT_SECRET:-change-this-to-a-long-random-secret}
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:1591}
+      PROJECTS_ORIGIN: ${PROJECTS_ORIGIN:-http://localhost:1592}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-100}
+      STORAGE_DIR: /data/projects
+    ports:
+      - "${APP_PORT:-1591}:1591"
+    volumes:
+      - projects:/data/projects
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [internal]
+
+  static:
+    build: .
+    command: ["node", "src/static-server.js"]
+    restart: unless-stopped
+    environment:
+      STATIC_PORT: 1592
+      DATABASE_URL: postgres://${POSTGRES_USER:-hostly}:${POSTGRES_PASSWORD:-change-me-now}@db:5432/${POSTGRES_DB:-hostly}
+      STORAGE_DIR: /data/projects
+    ports:
+      - "${STATIC_PORT:-1592}:1592"
+    volumes:
+      - projects:/data/projects:ro
+    networks: [internal]
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hostly}
+      POSTGRES_USER: ${POSTGRES_USER:-hostly}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-now}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hostly} -d ${POSTGRES_DB:-hostly}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+volumes:
+  postgres_data:
+  projects:
+
+networks:
+  internal:

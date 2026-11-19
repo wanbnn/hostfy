@@ -1,0 +1,291 @@
+/* Tipografia: mantém a Inter Tight (self-hosted) sobre os tokens do Primer */
+:root {
+  --fontStack-sansSerif: 'Inter Tight', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans',
+    Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+  --fontStack-sansSerifDisplay: 'Inter Tight', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    'Noto Sans', Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+  --fontStack-system: var(--fontStack-sansSerif);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--bgColor-default);
+  color: var(--fgColor-default);
+  font-family: var(--fontStack-sansSerif);
+  -webkit-font-smoothing: antialiased;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* Cabeçalho */
+.app-header {
+  border-bottom: 1px solid var(--borderColor-default);
+  background-color: var(--bgColor-default);
+}
+
+.app-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 16px 24px;
+}
+
+/* `a.brand` (0,1,1) supera a regra de links do BaseStyles do Primer (0,1,0) */
+a.brand,
+a.brand:visited,
+a.brand:hover,
+a.brand:active {
+  display: inline-flex;
+  align-items: center;
+  color: var(--fgColor-default);
+  font-size: 18px;
+  text-decoration: none;
+}
+
+.wordmark {
+  letter-spacing: -0.5px;
+}
+
+/* Wordmark grande da tela de autenticação */
+.auth-wordmark {
+  font-size: 40px;
+  letter-spacing: -1.5px;
+  color: var(--fgColor-default);
+  margin-bottom: 16px;
+}
+
+/* Layout base */
+.container {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px;
+  flex: 1;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel {
+  background-color: var(--bgColor-default);
+  border: 1px solid var(--borderColor-default);
+  border-radius: var(--borderRadius-large);
+  padding: 16px;
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.panel-title-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-title-main svg {
+  fill: var(--fgColor-muted);
+}
+
+/* Autenticação */
+.auth-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 16px;
+}
+
+.auth-title {
+  font-weight: 300 !important;
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.auth-panel {
+  width: 100%;
+  max-width: 340px;
+}
+
+.switch-box {
+  width: 100%;
+  max-width: 340px;
+  margin-top: 16px;
+  padding: 16px;
+  text-align: center;
+  border: 1px solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  font-size: 14px;
+}
+
+/* Painel */
+.page-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+}
+
+/* Campo de arquivo */
+.field-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.field-help {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--fgColor-muted);
+  overflow-wrap: anywhere;
+}
+
+.file-drop {
+  border: 1px dashed var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background-color: var(--bgColor-muted);
+  padding: 16px;
+  text-align: center;
+}
+
+/* Projetos */
+.project-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  background-color: var(--bgColor-muted);
+}
+
+.project-row + .project-row {
+  margin-top: 8px;
+}
+
+.project-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.project-slug {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.project-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Rodapé */
+.app-footer {
+  border-top: 1px solid var(--borderColor-default);
+  margin-top: 32px;
+  padding: 24px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--fgColor-muted);
+}
+
+/* Cookies */
+.cookie {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 100;
+  max-width: 1120px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px;
+  background-color: var(--bgColor-default);
+  border: 1px solid var(--borderColor-default);
+  border-radius: var(--borderRadius-large);
+  box-shadow: var(--shadow-floating-small, 0 8px 24px rgba(1, 4, 9, 0.8));
+}
+
+.cookie-text {
+  font-size: 14px;
+  color: var(--fgColor-muted);
+  max-width: 680px;
+}
+
+.cookie-text strong {
+  color: var(--fgColor-default);
+}
+
+.cookie-detail {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.cookie-detail b {
+  color: var(--fgColor-default);
+}
+
+.cookie-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .cookie-actions {
+    width: 100%;
+  }
+
+  .cookie-actions > * {
+    flex: 1;
+  }
+}
