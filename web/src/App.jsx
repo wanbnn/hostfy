@@ -9,6 +9,7 @@ import {
   IconButton,
   Label,
   Link,
+  Select,
   Spinner,
   Stack,
   Text,
@@ -24,6 +25,8 @@ import {
   PackageIcon,
   ShieldCheckIcon,
   SignOutIcon,
+  SyncIcon,
+  TerminalIcon,
   TrashIcon,
   UploadIcon,
 } from '@primer/octicons-react'
@@ -172,6 +175,7 @@ function UploadPanel({onUploaded}) {
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [fileName, setFileName] = useState('')
+  const [type, setType] = useState('auto')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -192,11 +196,13 @@ function UploadPanel({onUploaded}) {
       const body = new FormData()
       body.append('name', name)
       body.append('slug', slug)
+      body.append('type', type)
       body.append('project', file)
       const result = await api('/api/projects', {method: 'POST', body})
       onUploaded(result.url)
       setName('')
       setSlug('')
+      setType('auto')
       setFileName('')
       if (fileRef.current) fileRef.current.value = ''
     } catch (err) {
@@ -243,7 +249,20 @@ function UploadPanel({onUploaded}) {
               onChange={event => updateSlug(event.target.value)}
             />
             <FormControl.Caption>
-              Seu projeto ficará em <b>/{slug || 'meu-projeto'}/</b>
+              Estáticos usam <b>/{slug || 'meu-projeto'}/</b>; PHP/Node usam o subdomínio.
+            </FormControl.Caption>
+          </FormControl>
+
+          <FormControl>
+            <FormControl.Label>Tipo de projeto</FormControl.Label>
+            <Select block value={type} onChange={event => setType(event.target.value)}>
+              <Select.Option value="auto">Detectar automaticamente</Select.Option>
+              <Select.Option value="static">Site estático (HTML/CSS/JS)</Select.Option>
+              <Select.Option value="php">PHP</Select.Option>
+              <Select.Option value="node">Node.js</Select.Option>
+            </Select>
+            <FormControl.Caption>
+              Node roda <code>npm ci</code> e o build (se existir) e inicia com <code>npm start</code>.
             </FormControl.Caption>
           </FormControl>
 
@@ -275,33 +294,101 @@ function UploadPanel({onUploaded}) {
   )
 }
 
-function ProjectRow({project, origin, onDelete}) {
-  const href = `${origin}/${encodeURIComponent(project.slug)}/`
+const TYPE_LABELS = {
+  static: {text: 'Estático', variant: 'secondary'},
+  php: {text: 'PHP', variant: 'accent'},
+  node: {text: 'Node.js', variant: 'success'},
+}
+
+const STATUS_LABELS = {
+  running: {text: 'Em execução', variant: 'success'},
+  deploying: {text: 'Publicando', variant: 'attention'},
+  restarting: {text: 'Reiniciando', variant: 'attention'},
+  stopped: {text: 'Parado', variant: 'secondary'},
+  error: {text: 'Erro', variant: 'danger'},
+}
+
+function ProjectRow({project, onDelete, onChanged}) {
+  const [showLogs, setShowLogs] = useState(false)
+  const [logs, setLogs] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const isDynamic = project.type === 'php' || project.type === 'node'
+  const typeLabel = TYPE_LABELS[project.type] || TYPE_LABELS.static
+  const statusLabel = STATUS_LABELS[project.status] || {text: project.status || '—', variant: 'secondary'}
+  const displayUrl = String(project.url).replace(/^https?:\/\//, '')
+
+  async function toggleLogs() {
+    const next = !showLogs
+    setShowLogs(next)
+    if (!next) return
+    setLogs(null)
+    try {
+      const data = await api(`/api/projects/${project.id}/logs`)
+      const text = (data.logs || []).map(entry => `[${entry.stream}] ${entry.line}`).join('\n')
+      setLogs(text || 'Sem saída registrada ainda.')
+    } catch (err) {
+      setLogs(`Não foi possível carregar os logs: ${err.message}`)
+    }
+  }
+
+  async function restart() {
+    setBusy(true)
+    try {
+      await api(`/api/projects/${project.id}/restart`, {method: 'POST'})
+      await onChanged()
+    } catch (err) {
+      window.alert(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <div className="project-row">
-      <div className="project-info">
-        <Text as="strong">{project.name}</Text>
-        <Link href={href} target="_blank" rel="noopener" className="project-slug">
-          /{project.slug}/ <LinkExternalIcon size={12} />
-        </Link>
+    <div className="project-row-wrap">
+      <div className="project-row">
+        <div className="project-info">
+          <Stack direction="horizontal" gap="condensed" align="center" wrap="wrap">
+            <Text as="strong">{project.name}</Text>
+            <Label variant={typeLabel.variant}>{typeLabel.text}</Label>
+            {isDynamic ? <Label variant={statusLabel.variant}>{statusLabel.text}</Label> : null}
+          </Stack>
+          <Link href={project.url} target="_blank" rel="noopener" className="project-slug">
+            {displayUrl} <LinkExternalIcon size={12} />
+          </Link>
+        </div>
+        <div className="project-actions">
+          {isDynamic ? (
+            <IconButton
+              icon={SyncIcon}
+              aria-label={`Reiniciar ${project.name}`}
+              size="small"
+              disabled={busy}
+              onClick={restart}
+            />
+          ) : null}
+          {isDynamic ? (
+            <Button size="small" leadingVisual={TerminalIcon} onClick={toggleLogs}>
+              Logs
+            </Button>
+          ) : null}
+          <Button as="a" href={project.url} target="_blank" rel="noopener" size="small" leadingVisual={GlobeIcon}>
+            Abrir
+          </Button>
+          <IconButton
+            icon={TrashIcon}
+            aria-label={`Excluir ${project.name}`}
+            variant="danger"
+            size="small"
+            onClick={() => onDelete(project)}
+          />
+        </div>
       </div>
-      <div className="project-actions">
-        <Button as="a" href={href} target="_blank" rel="noopener" size="small" leadingVisual={GlobeIcon}>
-          Abrir
-        </Button>
-        <IconButton
-          icon={TrashIcon}
-          aria-label={`Excluir ${project.name}`}
-          variant="danger"
-          size="small"
-          onClick={() => onDelete(project)}
-        />
-      </div>
+      {showLogs ? <pre className="logs-box">{logs ?? 'Carregando…'}</pre> : null}
     </div>
   )
 }
 
-function ProjectsPanel({projects, origin, onDelete, loading}) {
+function ProjectsPanel({projects, onDelete, onChanged, loading, runtimeEnabled}) {
   return (
     <div className="panel">
       <div className="panel-title">
@@ -323,13 +410,18 @@ function ProjectsPanel({projects, origin, onDelete, loading}) {
           </Blankslate.Visual>
           <Blankslate.Heading>Nenhum projeto publicado</Blankslate.Heading>
           <Blankslate.Description>
-            Envie seu primeiro ZIP ao lado para publicar um site.
+            Envie seu primeiro ZIP ao lado para publicar um site, aplicação PHP ou Node.js.
           </Blankslate.Description>
         </Blankslate>
       ) : (
         <div>
+          {!runtimeEnabled ? (
+            <InlineMessage variant="warning">
+              A execução de PHP/Node está desativada neste servidor. Apenas sites estáticos funcionarão.
+            </InlineMessage>
+          ) : null}
           {projects.map(project => (
-            <ProjectRow key={project.id} project={project} origin={origin} onDelete={onDelete} />
+            <ProjectRow key={project.id} project={project} onDelete={onDelete} onChanged={onChanged} />
           ))}
         </div>
       )}
@@ -339,13 +431,13 @@ function ProjectsPanel({projects, origin, onDelete, loading}) {
 
 function Dashboard({user, onLogout}) {
   const [projects, setProjects] = useState([])
-  const [origin, setOrigin] = useState('')
   const [loading, setLoading] = useState(true)
+  const [runtimeEnabled, setRuntimeEnabled] = useState(false)
 
   const loadProjects = useCallback(async () => {
     const data = await api('/api/projects')
     setProjects(data.projects)
-    setOrigin(data.projectsOrigin)
+    setRuntimeEnabled(Boolean(data.runtimeEnabled))
   }, [])
 
   useEffect(() => {
@@ -384,7 +476,7 @@ function Dashboard({user, onLogout}) {
             </Label>
           </Stack>
           <Text className="muted">
-            Publique sites estáticos, organize tudo em um só lugar e compartilhe cada projeto por slug.
+            Publique sites estáticos, aplicações PHP ou Node.js e compartilhe cada projeto por endereço próprio.
           </Text>
         </div>
 
@@ -392,9 +484,10 @@ function Dashboard({user, onLogout}) {
           <UploadPanel onUploaded={handleUploaded} />
           <ProjectsPanel
             projects={projects}
-            origin={origin}
             onDelete={handleDelete}
+            onChanged={loadProjects}
             loading={loading}
+            runtimeEnabled={runtimeEnabled}
           />
         </div>
       </main>

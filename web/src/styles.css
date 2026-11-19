@@ -200,8 +200,25 @@ a.brand:active {
   background-color: var(--bgColor-muted);
 }
 
-.project-row + .project-row {
+.project-row-wrap + .project-row-wrap {
   margin-top: 8px;
+}
+
+/* Saída de logs dos projetos PHP/Node */
+.logs-box {
+  margin: 8px 0 0;
+  padding: 12px;
+  max-height: 240px;
+  overflow: auto;
+  background-color: var(--bgColor-inset, var(--bgColor-muted));
+  border: 1px solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+  font-family: var(--fontStack-monospace, ui-monospace, SFMono-Regular, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--fgColor-muted);
 }
 
 .project-info {

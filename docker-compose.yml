@@ -9,10 +9,43 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-this-to-a-long-random-secret}
       APP_ORIGIN: ${APP_ORIGIN:-http://localhost:1591}
       PROJECTS_ORIGIN: ${PROJECTS_ORIGIN:-http://localhost:1592}
+      PROJECTS_DOMAIN: ${PROJECTS_DOMAIN:-}
+      PROJECTS_SCHEME: ${PROJECTS_SCHEME:-https}
+      RUNNER_URL: http://runner:1594
+      RUNNER_TOKEN: ${RUNNER_TOKEN:-change-me-runner-token}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-100}
       STORAGE_DIR: /data/projects
     ports:
       - "${APP_PORT:-1591}:1591"
+    volumes:
+      - projects:/data/projects
+    depends_on:
+      db:
+        condition: service_healthy
+      runner:
+        condition: service_started
+    networks: [internal]
+
+  # Executa projetos PHP/Node e faz o proxy por subdomínio ({slug}.PROJECTS_DOMAIN).
+  runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      RUNNER_PORT: 1593
+      RUNNER_CONTROL_PORT: 1594
+      RUNNER_TOKEN: ${RUNNER_TOKEN:-change-me-runner-token}
+      DATABASE_URL: postgres://${POSTGRES_USER:-hostly}:${POSTGRES_PASSWORD:-change-me-now}@db:5432/${POSTGRES_DB:-hostly}
+      STORAGE_DIR: /data/projects
+      PROJECTS_DOMAIN: ${PROJECTS_DOMAIN:-}
+      PORT_BASE: ${PORT_BASE:-21000}
+      RUNNER_NODE_MEM_MB: ${RUNNER_NODE_MEM_MB:-256}
+      RUNNER_PHP_MEMORY: ${RUNNER_PHP_MEMORY:-256M}
+    ports:
+      # O cloudflared (no host ou em outro container) aponta para esta porta.
+      - "${RUNNER_PORT:-1593}:1593"
     volumes:
       - projects:/data/projects
     depends_on:

@@ -16,6 +16,13 @@ async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS projects_user_id_idx ON projects(user_id);
+
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'static';
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS docroot TEXT;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS start_command TEXT;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'running';
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS runtime_port INTEGER;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
 }
 module.exports = { pool, initDb };
