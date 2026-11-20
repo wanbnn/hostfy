@@ -5,7 +5,7 @@ painel com páginas separadas para projetos, aplicações Docker Compose, GitHub
 
 Cada conta pode publicar:
 
-- **Sites estáticos** (HTML, CSS, JS, imagens) — servidos em `http://SEU_HOST:1592/SEU-SLUG/`.
+- **Sites estáticos** (HTML, CSS, JS, imagens) — servidos por um servidor interno e publicados em subdomínio (`SEU-SLUG.SEU_DOMINIO`); sem domínio configurado, também respondem em `http://SEU_HOST:1592/SEU-SLUG/`.
 - **Aplicações PHP** — executadas por um runner interno e publicadas em subdomínio (`SEU-SLUG.SEU_DOMINIO`).
 - **Aplicações Node.js** — o runner roda `npm ci`/`npm install`, o build (se houver) e inicia a aplicação.
 - **Projetos Docker Compose** — a partir de um ZIP ou de um repositório do GitHub (público ou privado);
@@ -37,8 +37,8 @@ docker compose up -d --build
 ```
 
 - Painel: http://localhost:1591
-- Sites estáticos: http://localhost:1592/SEU-SLUG/
-- Aplicações PHP/Node/Docker: https://SEU-SLUG.SEU_DOMINIO/
+- Sites estáticos (por caminho, sem domínio): http://localhost:1592/SEU-SLUG/
+- Sites estáticos e aplicações PHP/Node/Docker (com domínio): https://SEU-SLUG.SEU_DOMINIO/
 
 > O frontend (React + [Primer](https://primer.style), o design system do GitHub) é
 > compilado com Vite durante o build da imagem (`npm run build` → `public/`).
@@ -53,7 +53,7 @@ Cada conta pode publicar vários projetos. O slug é único globalmente.
 
 O tipo é detectado pelo conteúdo do ZIP:
 
-- **Estático** — precisa de `index.html` na raiz. Publicado em `/SLUG/`.
+- **Estático** — precisa de `index.html` na raiz. Publicado no subdomínio (`SLUG.PROJECTS_DOMAIN`) quando há domínio; caso contrário, em `/SLUG/`.
 - **PHP** — detectado por `index.php`, `composer.json` ou qualquer `.php`. Se existir `public/index.php` (Laravel/Symfony), o docroot é `public/`.
 - **Node.js** — detectado por `package.json`. O runner roda `npm ci` (ou `npm install`), o `npm run build` quando existir e inicia com `npm start` (ou o `main`/`server.js`/`app.js`/`index.js`).
 
@@ -136,8 +136,9 @@ O serviço `runner` otimiza o Docker do host automaticamente, com avisos aos usu
 
 ## Cloudflare Tunnel (subdomínios)
 
-As aplicações PHP/Node são servidas por subdomínio (`SEU-SLUG.PROJECTS_DOMAIN`)
-e o runner escuta na porta **1593**. Com Cloudflare Tunnel, crie um registro DNS
+Os sites estáticos e as aplicações PHP/Node são servidos por subdomínio
+(`SEU-SLUG.PROJECTS_DOMAIN`) e o runner escuta na porta **1593** (ele repassa os
+estáticos ao servidor de arquivos). Com Cloudflare Tunnel, crie um registro DNS
 wildcard e aponte o hostname curinga para o runner.
 
 Exemplo de `config.yml` do `cloudflared`:
@@ -190,7 +191,7 @@ O backend (`npm start`) serve os arquivos já compilados de `public/`.
 | `RUNNER_PORT` | 1593 | Porta pública do proxy de aplicações PHP/Node |
 | `RUNNER_CONTROL_PORT` | 1594 | Porta interna da API do runner |
 | `RUNNER_TOKEN` | inseguro | Segredo compartilhado entre app e runner — use valor aleatório |
-| `PROJECTS_DOMAIN` | (vazio) | Domínio base dos subdomínios das aplicações (ex.: `sites.seudominio.com`) |
+| `PROJECTS_DOMAIN` | (vazio) | Domínio base dos subdomínios dos projetos, inclusive estáticos (ex.: `sites.seudominio.com`) |
 | `PROJECTS_SCHEME` | https | Esquema usado para montar a URL das aplicações |
 | `PORT_BASE` | 21000 | Primeira porta interna atribuída aos processos |
 | `RUNNER_NODE_MEM_MB` | 256 | Limite de heap (`--max-old-space-size`) por app Node |
@@ -234,7 +235,7 @@ Os dados ficam nos volumes Docker `postgres_data` e `projects`.
 
 ## Limitações
 
-- Sites estáticos são servidos por caminho (`/SLUG/`); PHP e Node por subdomínio (`SLUG.PROJECTS_DOMAIN`).
+- Com `PROJECTS_DOMAIN` configurado, sites estáticos e PHP/Node usam subdomínio (`SLUG.PROJECTS_DOMAIN`); o runner recebe o subdomínio e repassa os estáticos ao servidor de arquivos. Sem domínio, os estáticos ficam no caminho (`/SLUG/`).
 - PHP usa o servidor embutido (`php -S`) com um roteador que encaminha para `index.php` quando o arquivo não existe — bom para apps de front controller, mas não é um `php-fpm` de alta concorrência.
 - Node usa o `start` do `package.json` ou o arquivo de entrada detectado; não há detecção de framework (Next, Nest etc. rodam pelo script `start`).
 - Sem bancos de dados gerenciados por projeto, sem variáveis de ambiente customizadas pela UI e sem domínios personalizados por projeto (ainda).

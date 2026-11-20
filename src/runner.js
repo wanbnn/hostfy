@@ -30,6 +30,9 @@ const TOKEN = String(process.env.RUNNER_TOKEN || '');
 const STORAGE = process.env.STORAGE_DIR || '/data/projects';
 const PORT_BASE = Number(process.env.PORT_BASE || 21000);
 const PROJECTS_DOMAIN = String(process.env.PROJECTS_DOMAIN || '').trim().toLowerCase();
+// Servidor interno que entrega os arquivos dos sites estáticos. Quando definido,
+// os subdomínios também atendem projetos estáticos (repassados a ele).
+const STATIC_URL = String(process.env.STATIC_URL || '').trim();
 const MAX_RESTARTS = Number(process.env.RUNNER_MAX_RESTARTS || 5);
 const NODE_MEM_MB = Number(process.env.RUNNER_NODE_MEM_MB || 256);
 const PHP_MEMORY = process.env.RUNNER_PHP_MEMORY || '256M';
@@ -546,6 +549,26 @@ function findRunningBySlug(slug) {
   return null;
 }
 
+// Cache curto do tipo/storage do projeto por slug, para não consultar o banco
+// a cada ativo (CSS, JS, imagens) de um site estático.
+const identityCache = new Map(); // slug -> { type, storageKey, at }
+const IDENTITY_TTL_MS = 15000;
+async function projectIdentity(slug) {
+  const cached = identityCache.get(slug);
+  if (cached && Date.now() - cached.at < IDENTITY_TTL_MS) return cached;
+  const { rows } = await pool.query(
+    'SELECT p.type, s.storage_key FROM projects p JOIN project_storage s ON s.project_id=p.id WHERE p.slug=$1',
+    [slug]
+  );
+  const value = {
+    type: rows[0] ? rows[0].type : null,
+    storageKey: rows[0] ? rows[0].storage_key : null,
+    at: Date.now(),
+  };
+  identityCache.set(slug, value);
+  return value;
+}
+
 function proxyRequest(req, res, app) {
   const targetHost = app.host || '127.0.0.1';
   const headers = { ...req.headers };
@@ -584,19 +607,60 @@ function proxyUpgrade(req, socket, head, app) {
   socket.on('error', () => upstream.destroy());
 }
 
-const publicServer = http.createServer((req, res) => {
-  const host = String(req.headers.host || '').split(':')[0].toLowerCase();
-  const slug = subdomainSlug(host);
-  const app = slug ? findRunningBySlug(slug) : null;
-  if (!slug) {
-    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-    return res.end('Projeto não encontrado.');
+// Repassa um subdomínio de site estático para o servidor de estáticos, que
+// entrega os arquivos do projeto identificado pelo cabeçalho X-Hostfy-Slug.
+function proxyStatic(req, res, slug) {
+  let base;
+  try {
+    base = new URL(STATIC_URL);
+  } catch {
+    return res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Serviço indisponível.');
   }
-  if (!app) {
+  const headers = { ...req.headers, host: base.host, 'x-hostfy-slug': slug };
+  headers['x-forwarded-host'] = req.headers.host || '';
+  headers['x-forwarded-proto'] = req.socket.encrypted ? 'https' : 'http';
+  delete headers.connection;
+
+  const upstream = http.request(
+    { host: base.hostname, port: base.port || 80, method: req.method, path: req.url, headers },
+    up => {
+      res.writeHead(up.statusCode || 502, up.headers);
+      up.pipe(res);
+    }
+  );
+  upstream.on('error', () => {
+    if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Serviço indisponível.');
+  });
+  req.pipe(upstream);
+}
+
+const publicServer = http.createServer(async (req, res) => {
+  try {
+    const host = String(req.headers.host || '').split(':')[0].toLowerCase();
+    const slug = subdomainSlug(host);
+    if (!slug) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end('Projeto não encontrado.');
+    }
+    const app = findRunningBySlug(slug);
+    if (app) return proxyRequest(req, res, app);
+
+    const identity = await projectIdentity(slug);
+    if (!identity.type) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      return res.end('Projeto não encontrado.');
+    }
+    // Sites estáticos não precisam de processo: o servidor de estáticos entrega os arquivos.
+    if (identity.type === 'static' && STATIC_URL) return proxyStatic(req, res, slug);
+
     res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
     return res.end('Projeto indisponível no momento.');
+  } catch (e) {
+    console.error(`[runner] falha no proxy: ${e.message}`);
+    if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Erro interno.');
   }
-  proxyRequest(req, res, app);
 });
 
 publicServer.on('upgrade', (req, socket, head) => {

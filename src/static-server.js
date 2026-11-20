@@ -8,8 +8,11 @@ const STORAGE = process.env.STORAGE_DIR || '/data/projects';
 app.disable('x-powered-by');
 app.use(async (req,res,next) => {
   try {
+    // O runner encaminha os subdomínios ({slug}.PROJECTS_DOMAIN) com o slug no
+    // cabeçalho X-Hostfy-Slug; sem ele, o slug é o primeiro segmento do caminho.
+    const headerSlug = String(req.headers['x-hostfy-slug'] || '').trim().toLowerCase();
     const parts = req.path.split('/').filter(Boolean);
-    const slug = parts.shift();
+    const slug = headerSlug || parts.shift();
     if (!slug || !/^[a-z0-9](?:[a-z0-9-]{1,48}[a-z0-9])?$/.test(slug)) return res.status(404).send('Projeto não encontrado.');
     const { rows } = await pool.query(
       'SELECT s.storage_key FROM projects p JOIN project_storage s ON s.project_id=p.id WHERE p.slug=$1', [slug]);

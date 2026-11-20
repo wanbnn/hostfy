@@ -43,11 +43,13 @@ const staticOrigin = () => process.env.PROJECTS_ORIGIN || 'http://localhost:1592
 const projectsDomain = () => String(process.env.PROJECTS_DOMAIN || '').trim();
 const projectsScheme = () => process.env.PROJECTS_SCHEME || 'https';
 
-// Projetos estáticos seguem no endereço por caminho; PHP/Node/Docker usam subdomínio.
+// Todos os projetos usam subdomínio ({slug}.PROJECTS_DOMAIN) quando o domínio está
+// configurado. Sem domínio, o site estático ainda fica acessível pelo caminho
+// (/slug/) no servidor de estáticos.
 function projectUrl(type, slug) {
   const domain = projectsDomain();
-  if (type === 'static' || !domain) return `${staticOrigin()}/${slug}/`;
-  return `${projectsScheme()}://${slug}.${domain}/`;
+  if (domain) return `${projectsScheme()}://${slug}.${domain}/`;
+  return `${staticOrigin()}/${slug}/`;
 }
 
 function parseEnv(input) {

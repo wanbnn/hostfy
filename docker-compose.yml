@@ -46,6 +46,8 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-hostly}:${POSTGRES_PASSWORD:-change-me-now}@db:5432/${POSTGRES_DB:-hostly}
       STORAGE_DIR: /data/projects
       PROJECTS_DOMAIN: ${PROJECTS_DOMAIN:-}
+      # Subdomínios de sites estáticos são repassados a este serviço.
+      STATIC_URL: http://static:1592
       PORT_BASE: ${PORT_BASE:-21000}
       RUNNER_NODE_MEM_MB: ${RUNNER_NODE_MEM_MB:-256}
       RUNNER_PHP_MEMORY: ${RUNNER_PHP_MEMORY:-256M}
@@ -62,6 +64,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      static:
+        condition: service_started
     networks: [internal]
 
   static:

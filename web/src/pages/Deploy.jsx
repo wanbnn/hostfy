@@ -255,7 +255,7 @@ export default function DeployPage({capabilities, onDone}) {
         <div className="panel help-panel">
           <Heading as="h2" variant="small">Como funciona</Heading>
           <ul className="help-list">
-            <li><b>Estático</b>: precisa de <code>index.html</code> na raiz. Servido em <code>/slug/</code>.</li>
+            <li><b>Estático</b>: precisa de <code>index.html</code> na raiz. Publicado no subdomínio do projeto.</li>
             <li><b>PHP</b>: detecta <code>index.php</code>/<code>composer.json</code>; docroot em <code>public/</code> quando houver.</li>
             <li><b>Node.js</b>: roda <code>npm ci</code>, o build e <code>npm start</code>.</li>
             <li><b>Docker</b>: roda o seu <code>docker-compose.yml</code>. O serviço web é publicado no subdomínio.</li>
