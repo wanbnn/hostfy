@@ -21,6 +21,8 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const { spawn } = require('child_process');
 const { Pool } = require('pg');
+const docker = require('./docker-runtime');
+const cleanup = require('./cleanup');
 
 const CONTROL_PORT = Number(process.env.RUNNER_CONTROL_PORT || 1594);
 const PUBLIC_PORT = Number(process.env.RUNNER_PORT || 1593);
@@ -32,6 +34,10 @@ const MAX_RESTARTS = Number(process.env.RUNNER_MAX_RESTARTS || 5);
 const NODE_MEM_MB = Number(process.env.RUNNER_NODE_MEM_MB || 256);
 const PHP_MEMORY = process.env.RUNNER_PHP_MEMORY || '256M';
 const LOG_LIMIT = Number(process.env.RUNNER_LOG_LINES || 500);
+const CLK_TCK = Number(process.env.CLK_TCK || 100);
+const PAGE_SIZE = Number(process.env.PAGE_SIZE || 4096);
+const CLEANUP_ENABLED = String(process.env.CLEANUP_ENABLED || 'true') !== 'false';
+const CLEANUP_INTERVAL_MINUTES = Number(process.env.CLEANUP_INTERVAL_MINUTES || 60);
 const RUNTIME_DIR = '/tmp/hostly';
 const ROUTER_PATH = path.join(RUNTIME_DIR, 'php-router.php');
 const BUILD_HOME = path.join(RUNTIME_DIR, 'home');
@@ -110,6 +116,85 @@ function releasePort(app) {
   if (app.port) usedPorts.delete(app.port);
 }
 
+// ---------------------------------------------------------------------------
+// Métricas de recursos dos processos PHP/Node (via /proc)
+// ---------------------------------------------------------------------------
+
+function readProcStat(pid) {
+  try {
+    const raw = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const end = raw.lastIndexOf(')');
+    const fields = raw.slice(end + 2).split(' ');
+    return {
+      ppid: Number(fields[1]),
+      utime: Number(fields[11]),
+      stime: Number(fields[12]),
+      cutime: Number(fields[13]),
+      cstime: Number(fields[14]),
+      rss: Number(fields[21]),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function procTree(rootPid) {
+  const all = {};
+  let entries = [];
+  try {
+    entries = fs.readdirSync('/proc');
+  } catch {
+    return [];
+  }
+  for (const name of entries) {
+    if (!/^\d+$/.test(name)) continue;
+    const stat = readProcStat(name);
+    if (stat) all[name] = stat;
+  }
+  const pids = new Set([String(rootPid)]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [pid, stat] of Object.entries(all)) {
+      if (pids.has(String(stat.ppid)) && !pids.has(pid)) {
+        pids.add(pid);
+        changed = true;
+      }
+    }
+  }
+  return [...pids].map(pid => all[pid]).filter(Boolean);
+}
+
+function processStats(app) {
+  if (!app.child || !app.child.pid) return { cpuPercent: 0, memBytes: 0, containers: 0 };
+  const procs = procTree(app.child.pid);
+  if (!procs.length) return { cpuPercent: 0, memBytes: 0, containers: 0 };
+  const ticks = procs.reduce((a, s) => a + s.utime + s.stime + s.cutime + s.cstime, 0);
+  const rssPages = procs.reduce((a, s) => a + s.rss, 0);
+  const now = Date.now();
+  let cpuPercent = 0;
+  if (app.sample) {
+    const dt = (now - app.sample.ts) / 1000;
+    if (dt > 0) cpuPercent = ((ticks - app.sample.ticks) / CLK_TCK / dt) * 100;
+  }
+  app.sample = { ticks, ts: now };
+  return {
+    cpuPercent: Math.max(0, Math.round(cpuPercent * 100) / 100),
+    memBytes: Math.max(0, rssPages * PAGE_SIZE),
+    containers: procs.length,
+  };
+}
+
+async function statsFor(projectId) {
+  const app = apps.get(String(projectId));
+  if (!app) return { status: 'unknown', cpuPercent: 0, memBytes: 0, containers: 0 };
+  if (app.kind === 'docker') {
+    const s = await docker.stats(app.projectName).catch(() => ({ cpuPercent: 0, memBytes: 0, containers: 0 }));
+    return { status: app.status, ...s };
+  }
+  return { status: app.status, ...processStats(app) };
+}
+
 function persistStatus(app) {
   if (!app.projectId) return;
   pool
@@ -126,6 +211,7 @@ function summary(app) {
     projectId: app.projectId,
     slug: app.slug,
     type: app.type,
+    kind: app.kind || 'process',
     status: app.status,
     port: app.port || null,
     restarts: app.restarts,
@@ -142,7 +228,7 @@ function runStep(app, cmd, args, label) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
       cwd: app.dir,
-      env: baseEnv({ NODE_ENV: 'production' }),
+      env: baseEnv({ NODE_ENV: 'production', ...(app.env || {}) }),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     child.stdout.on('data', d => log(app, 'stdout', d));
@@ -177,6 +263,7 @@ function spawnApp(app) {
         PORT: String(app.port),
         HOST: '0.0.0.0',
         NODE_OPTIONS: `--max-old-space-size=${NODE_MEM_MB}`,
+        ...(app.env || {}),
       }),
       shell: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -188,7 +275,7 @@ function spawnApp(app) {
     ['-d', `memory_limit=${PHP_MEMORY}`, '-S', `0.0.0.0:${app.port}`, '-t', docroot, ROUTER_PATH],
     {
       cwd: app.dir,
-      env: baseEnv({ HOSTLY_DOCROOT: docroot }),
+      env: baseEnv({ HOSTLY_DOCROOT: docroot, ...(app.env || {}) }),
       stdio: ['ignore', 'pipe', 'pipe'],
     }
   );
@@ -256,6 +343,15 @@ function handleChildStop(app, child, code, signal, spawnError) {
 async function stopApp(projectId) {
   const app = apps.get(String(projectId));
   if (!app) return { stopped: false };
+  if (app.kind === 'docker') {
+    app.stopRequested = true;
+    await docker
+      .composeStop({ projectName: app.projectName, dir: app.dir, composeFile: app.composeFile })
+      .catch(() => {});
+    app.status = 'stopped';
+    persistStatus(app);
+    return { stopped: true };
+  }
   app.stopRequested = true;
   const child = app.child;
   if (child) {
@@ -291,6 +387,7 @@ async function deployApp(payload) {
   const app = existing || { logs: [] };
   Object.assign(app, {
     projectId: key,
+    kind: 'process',
     storageKey: payload.storageKey,
     slug: payload.slug,
     type: payload.type,
@@ -298,6 +395,7 @@ async function deployApp(payload) {
     docroot: payload.docroot || '',
     startCommand: payload.startCommand || null,
     hasBuild: Boolean(payload.hasBuild),
+    env: payload.env || {},
     port: null,
     status: 'deploying',
     restarts: 0,
@@ -327,6 +425,14 @@ async function removeApp(projectId) {
   const key = String(projectId);
   const app = apps.get(key);
   if (!app) return { removed: false };
+  if (app.kind === 'docker') {
+    await docker
+      .composeDown({ projectName: app.projectName, dir: app.dir, composeFile: app.composeFile, removeVolumes: true })
+      .catch(() => {});
+    await docker.removeProjectResources(app.projectName).catch(() => {});
+    apps.delete(key);
+    return { removed: true };
+  }
   await stopApp(key);
   apps.delete(key);
   return { removed: true };
@@ -335,6 +441,25 @@ async function removeApp(projectId) {
 async function restartApp(projectId) {
   const app = apps.get(String(projectId));
   if (!app) throw new Error('Projeto não encontrado no runner.');
+  if (app.kind === 'docker') {
+    await docker
+      .composeRestart({ projectName: app.projectName, dir: app.dir, composeFile: app.composeFile })
+      .catch(async () => {
+        await docker.composeStart({ projectName: app.projectName, dir: app.dir, composeFile: app.composeFile });
+      });
+    const target = await docker.resolveWebTarget({
+      projectName: app.projectName,
+      dir: app.dir,
+      composeFile: app.composeFile,
+      webService: app.webService,
+      webPort: app.webPort,
+    });
+    app.host = target.host;
+    app.port = target.port;
+    app.status = 'running';
+    persistStatus(app);
+    return { status: app.status, port: app.port };
+  }
   await stopApp(projectId);
   app.stopRequested = false;
   app.restarts = 0;
@@ -342,6 +467,61 @@ async function restartApp(projectId) {
   app.port = await allocatePort();
   startProcess(app);
   return { status: app.status, port: app.port };
+}
+
+// ---------------------------------------------------------------------------
+// Projetos Docker Compose
+// ---------------------------------------------------------------------------
+
+async function deployDockerApp(payload) {
+  const key = String(payload.projectId);
+  await stopApp(key);
+
+  const dir = path.resolve(STORAGE, payload.storageKey);
+  await fsp.access(dir);
+
+  const composeFile = payload.composeFile || (await docker.findComposeFile(dir));
+  if (!composeFile) {
+    throw new Error('Não encontrei um arquivo docker-compose.yml (ou compose.yaml) no projeto.');
+  }
+
+  const projectName = docker.projectNameFor(payload.slug);
+  const env = payload.env || {};
+
+  await docker.composeUp({ projectName, dir, composeFile, env });
+  const target = await docker.resolveWebTarget({
+    projectName,
+    dir,
+    composeFile,
+    webService: payload.webService,
+    webPort: payload.webPort,
+  });
+
+  const existing = apps.get(key);
+  const app = existing || { logs: [] };
+  Object.assign(app, {
+    projectId: key,
+    kind: 'docker',
+    type: 'docker',
+    storageKey: payload.storageKey,
+    slug: payload.slug,
+    dir,
+    composeFile,
+    projectName,
+    webService: target.service,
+    webPort: target.port,
+    host: target.host,
+    port: target.port,
+    env,
+    status: 'running',
+    restarts: 0,
+    stopRequested: false,
+    lastError: null,
+    child: null,
+  });
+  apps.set(key, app);
+  persistStatus(app);
+  return { status: 'running', port: target.port, host: target.host, service: target.service, type: 'docker' };
 }
 
 // ---------------------------------------------------------------------------
@@ -360,20 +540,22 @@ function subdomainSlug(host) {
 
 function findRunningBySlug(slug) {
   for (const app of apps.values()) {
-    if (app.slug === slug && app.status === 'running' && app.child) return app;
+    if (app.slug !== slug || app.status !== 'running') continue;
+    if (app.kind === 'docker' ? app.host : app.child) return app;
   }
   return null;
 }
 
 function proxyRequest(req, res, app) {
+  const targetHost = app.host || '127.0.0.1';
   const headers = { ...req.headers };
-  headers.host = `127.0.0.1:${app.port}`;
+  headers.host = `${targetHost}:${app.port}`;
   headers['x-forwarded-host'] = req.headers.host || '';
   headers['x-forwarded-proto'] = req.socket.encrypted ? 'https' : 'http';
   delete headers.connection;
 
   const upstream = http.request(
-    { host: '127.0.0.1', port: app.port, method: req.method, path: req.url, headers },
+    { host: targetHost, port: app.port, method: req.method, path: req.url, headers },
     up => {
       res.writeHead(up.statusCode || 502, up.headers);
       up.pipe(res);
@@ -387,8 +569,9 @@ function proxyRequest(req, res, app) {
 }
 
 function proxyUpgrade(req, socket, head, app) {
-  const upstream = net.connect(app.port, '127.0.0.1', () => {
-    const headers = { ...req.headers, host: `127.0.0.1:${app.port}` };
+  const targetHost = app.host || '127.0.0.1';
+  const upstream = net.connect(app.port, targetHost, () => {
+    const headers = { ...req.headers, host: `${targetHost}:${app.port}` };
     let raw = `${req.method} ${req.url} HTTP/1.1\r\n`;
     for (const [k, v] of Object.entries(headers)) raw += `${k}: ${v}\r\n`;
     raw += '\r\n';
@@ -472,7 +655,18 @@ const controlServer = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && parts[0] === 'logs') {
       const app = apps.get(parts[1]);
-      return send(res, 200, { logs: app ? app.logs : [] });
+      if (!app) return send(res, 200, { logs: [] });
+      if (app.kind === 'docker') {
+        const text = await docker
+          .composeLogs({ projectName: app.projectName, dir: app.dir, composeFile: app.composeFile })
+          .catch(() => '');
+        const logs = text
+          .split('\n')
+          .filter(Boolean)
+          .map(line => ({ t: Date.now(), stream: 'docker', line }));
+        return send(res, 200, { logs });
+      }
+      return send(res, 200, { logs: app.logs });
     }
     if (req.method === 'POST' && parts[0] === 'deploy') {
       const body = await readJson(req);
@@ -490,6 +684,65 @@ const controlServer = http.createServer(async (req, res) => {
       const body = await readJson(req);
       return send(res, 200, await restartApp(String(body.projectId)));
     }
+
+    if (req.method === 'GET' && parts[0] === 'capabilities') {
+      const dockerAvailable = await docker.available();
+      return send(res, 200, {
+        runtime: true,
+        docker: dockerAvailable,
+        dockerVersion: dockerAvailable ? await docker.serverVersion() : null,
+        cleanupGraceHours: cleanup.GRACE_HOURS,
+      });
+    }
+    if (req.method === 'GET' && parts[0] === 'stats' && parts.length === 2) {
+      return send(res, 200, await statsFor(parts[1]));
+    }
+    if (req.method === 'GET' && parts[0] === 'stats') {
+      const out = {};
+      for (const app of apps.values()) out[app.projectId] = await statsFor(app.projectId);
+      return send(res, 200, { stats: out });
+    }
+
+    if (req.method === 'POST' && parts[0] === 'docker' && parts[1] === 'deploy') {
+      const body = await readJson(req);
+      return send(res, 200, await deployDockerApp(body));
+    }
+    if (req.method === 'POST' && parts[0] === 'docker' && parts[1] === 'down') {
+      const body = await readJson(req);
+      const app = apps.get(String(body.projectId));
+      if (!app || app.kind !== 'docker') return send(res, 404, { error: 'Projeto Docker não encontrado no runner.' });
+      await docker.composeDown({ projectName: app.projectName, dir: app.dir, composeFile: app.composeFile });
+      app.status = 'stopped';
+      persistStatus(app);
+      return send(res, 200, { ok: true, status: 'stopped' });
+    }
+    if (req.method === 'POST' && parts[0] === 'docker' && parts[1] === 'restart') {
+      const body = await readJson(req);
+      return send(res, 200, await restartApp(String(body.projectId)));
+    }
+    if (req.method === 'GET' && parts[0] === 'docker' && parts[1] === 'df') {
+      return send(res, 200, { df: await docker.diskUsage(), containers: await docker.listContainers() });
+    }
+    if (req.method === 'GET' && parts[0] === 'docker' && parts[1] === 'containers') {
+      return send(res, 200, { containers: await docker.listContainers() });
+    }
+    if (req.method === 'POST' && parts[0] === 'docker' && parts[1] === 'prune') {
+      const body = await readJson(req);
+      const impact = await cleanup.pruneImpact(pool, { volumes: Boolean(body.volumes) });
+      let output = null;
+      if (body.force) {
+        if (!(await docker.available())) throw new Error('O Docker não está disponível neste host.');
+        output = await docker.prune({ volumes: Boolean(body.volumes) });
+      }
+      return send(res, 200, { impact, executed: Boolean(body.force), output });
+    }
+    if (req.method === 'POST' && parts[0] === 'cleanup' && parts[1] === 'scan') {
+      return send(res, 200, await cleanup.scan(pool));
+    }
+    if (req.method === 'POST' && parts[0] === 'cleanup' && parts[1] === 'run') {
+      return send(res, 200, await cleanup.runDue(pool));
+    }
+
     return send(res, 404, { error: 'Rota não encontrada.' });
   } catch (e) {
     send(res, 400, { error: e.message || 'Erro no runner.' });
@@ -540,6 +793,72 @@ async function waitForSchema() {
   throw new Error('Tabela "projects" não ficou disponível a tempo.');
 }
 
+async function ensureSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS project_storage (
+      project_id BIGINT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+      storage_key TEXT NOT NULL UNIQUE
+    );
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS compose_file TEXT;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS web_service TEXT;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS web_port INTEGER;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS env_json JSONB NOT NULL DEFAULT '{}'::jsonb;
+    CREATE TABLE IF NOT EXISTS notifications (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      project_id BIGINT REFERENCES projects(id) ON DELETE SET NULL,
+      level TEXT NOT NULL DEFAULT 'info',
+      title TEXT NOT NULL,
+      body TEXT,
+      action TEXT,
+      meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+      dedupe_key TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      read_at TIMESTAMPTZ
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS notifications_dedupe_idx
+      ON notifications(user_id, dedupe_key) WHERE dedupe_key IS NOT NULL;
+    CREATE TABLE IF NOT EXISTS cleanup_candidates (
+      id BIGSERIAL PRIMARY KEY,
+      kind TEXT NOT NULL,
+      resource_id TEXT NOT NULL,
+      name TEXT,
+      project_id BIGINT REFERENCES projects(id) ON DELETE SET NULL,
+      owner_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      reason TEXT,
+      detail JSONB NOT NULL DEFAULT '{}'::jsonb,
+      size_bytes BIGINT,
+      discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      scheduled_for TIMESTAMPTZ,
+      notified_at TIMESTAMPTZ,
+      executed_at TIMESTAMPTZ,
+      status TEXT NOT NULL DEFAULT 'pending'
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS cleanup_candidates_active_idx
+      ON cleanup_candidates(kind, resource_id) WHERE status NOT IN ('executed','skipped');
+  `);
+}
+
+function startCleanupScheduler() {
+  if (!CLEANUP_ENABLED) {
+    console.log('[runner] limpeza automática desativada (CLEANUP_ENABLED=false).');
+    return;
+  }
+  const tick = async () => {
+    try {
+      await cleanup.scan(pool);
+      const result = await cleanup.runDue(pool);
+      if (result.executed.length) console.log(`[runner] limpeza: ${result.executed.length} recurso(s) removido(s).`);
+    } catch (e) {
+      console.error(`[runner] falha na limpeza automática: ${e.message}`);
+    }
+  };
+  const interval = Math.max(5, CLEANUP_INTERVAL_MINUTES) * 60 * 1000;
+  setInterval(tick, interval);
+  setTimeout(tick, 15000);
+  console.log(`[runner] limpeza automática a cada ${CLEANUP_INTERVAL_MINUTES} min (carência de ${cleanup.GRACE_HOURS}h).`);
+}
+
 async function bootstrap() {
   await fsp.mkdir(RUNTIME_DIR, { recursive: true });
   await fsp.mkdir(BUILD_HOME, { recursive: true });
@@ -547,38 +866,60 @@ async function bootstrap() {
   await fsp.writeFile(ROUTER_PATH, ROUTER_SOURCE);
 
   await waitForSchema();
+  await ensureSchema();
 
-  await pool.query(`CREATE TABLE IF NOT EXISTS project_storage (
-    project_id BIGINT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
-    storage_key TEXT NOT NULL UNIQUE
-  )`);
+  const dockerAvailable = await docker.available();
+  console.log(`[runner] Docker ${dockerAvailable ? 'disponível' : 'indisponível'}.`);
 
   // Restaura projetos de runtime que já existiam (ex.: após reinício do runner).
   const { rows } = await pool.query(
-    `SELECT p.id, p.slug, p.type, p.docroot, p.start_command, s.storage_key
+    `SELECT p.id, p.slug, p.type, p.docroot, p.start_command,
+            p.compose_file, p.web_service, p.web_port, p.env_json, s.storage_key
        FROM projects p
        JOIN project_storage s ON s.project_id = p.id
-      WHERE p.type IN ('php','node')`
+      WHERE p.type IN ('php','node','docker')`
   );
   for (const row of rows) {
     try {
-      await deployApp({
-        projectId: String(row.id),
-        storageKey: row.storage_key,
-        slug: row.slug,
-        type: row.type,
-        docroot: row.docroot || '',
-        startCommand: row.start_command || null,
-        rebuild: false,
-      });
+      if (row.type === 'docker') {
+        if (!dockerAvailable) {
+          console.log(`[runner] pulando docker ${row.slug} (Docker indisponível).`);
+          continue;
+        }
+        await deployDockerApp({
+          projectId: String(row.id),
+          storageKey: row.storage_key,
+          slug: row.slug,
+          composeFile: row.compose_file || null,
+          webService: row.web_service || null,
+          webPort: row.web_port || null,
+          env: row.env_json || {},
+        });
+      } else {
+        await deployApp({
+          projectId: String(row.id),
+          storageKey: row.storage_key,
+          slug: row.slug,
+          type: row.type,
+          docroot: row.docroot || '',
+          startCommand: row.start_command || null,
+          env: row.env_json || {},
+          rebuild: false,
+        });
+      }
       console.log(`[runner] restaurado ${row.slug} (${row.type})`);
     } catch (e) {
       console.error(`[runner] falha ao restaurar ${row.slug}: ${e.message}`);
     }
   }
 
+  if (dockerAvailable) startCleanupScheduler();
+
   publicServer.listen(PUBLIC_PORT, () => console.log(`Hostfy runner proxy on ${PUBLIC_PORT}`));
   controlServer.listen(CONTROL_PORT, () => console.log(`Hostfy runner control on ${CONTROL_PORT}`));
+  // Builds de Docker Compose podem levar vários minutos.
+  controlServer.requestTimeout = 0;
+  controlServer.headersTimeout = 60 * 60 * 1000;
 }
 
 bootstrap().catch(e => {

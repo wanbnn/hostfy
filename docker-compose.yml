@@ -15,6 +15,8 @@ services:
       RUNNER_TOKEN: ${RUNNER_TOKEN:-change-me-runner-token}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-100}
       STORAGE_DIR: /data/projects
+      ENCRYPTION_SECRET: ${ENCRYPTION_SECRET:-change-me-encryption-secret}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
     ports:
       - "${APP_PORT:-1591}:1591"
     volumes:
@@ -26,12 +28,16 @@ services:
         condition: service_started
     networks: [internal]
 
-  # Executa projetos PHP/Node e faz o proxy por subdomínio ({slug}.PROJECTS_DOMAIN).
+  # Executa projetos PHP/Node, gerencia stacks Docker Compose e faz o proxy
+  # por subdomínio ({slug}.PROJECTS_DOMAIN). Também cuida da limpeza do Docker.
   runner:
     build:
       context: .
       dockerfile: Dockerfile.runner
     restart: unless-stopped
+    # O runner fala com o socket do Docker para subir os projetos Compose e
+    # executar a manutenção. Isso equivale a acesso root no host — veja o README.
+    user: "0:0"
     environment:
       NODE_ENV: production
       RUNNER_PORT: 1593
@@ -43,11 +49,16 @@ services:
       PORT_BASE: ${PORT_BASE:-21000}
       RUNNER_NODE_MEM_MB: ${RUNNER_NODE_MEM_MB:-256}
       RUNNER_PHP_MEMORY: ${RUNNER_PHP_MEMORY:-256M}
+      CLEANUP_ENABLED: ${CLEANUP_ENABLED:-true}
+      CLEANUP_GRACE_HOURS: ${CLEANUP_GRACE_HOURS:-24}
+      CLEANUP_INTERVAL_MINUTES: ${CLEANUP_INTERVAL_MINUTES:-60}
+      DOCKER_TIMEOUT_MS: ${DOCKER_TIMEOUT_MS:-1200000}
     ports:
       # O cloudflared (no host ou em outro container) aponta para esta porta.
       - "${RUNNER_PORT:-1593}:1593"
     volumes:
       - projects:/data/projects
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       db:
         condition: service_healthy

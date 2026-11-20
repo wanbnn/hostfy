@@ -20,6 +20,10 @@ RUN apk add --no-cache \
       php-session php-tokenizer php-fileinfo php-xml php-json \
       php-zip php-gd
 
+# CLI do Docker + plugin do Compose v2 para gerenciar os projetos Compose.
+# O socket do Docker é montado pelo docker-compose.yml.
+RUN apk add --no-cache docker-cli docker-cli-compose
+
 RUN mkdir -p /data/projects /tmp/hostly && chown -R node:node /data/projects /tmp/hostly /app
 
 # Garante o binário "php" mesmo quando o Alpine só instala "php83".
