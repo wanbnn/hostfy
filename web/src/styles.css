@@ -324,31 +324,39 @@ a.brand:active {
   justify-content: center;
 }
 
-.nav-link {
+/* `a.nav-link` (0,1,1) supera a regra de links do BaseStyles do Primer (0,1,0),
+   que é injetada depois e, sem isto, aplica cor de destaque e sublinhado no hover. */
+a.nav-link,
+a.nav-link:visited {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
   border-radius: var(--borderRadius-medium);
   color: var(--fgColor-muted);
+  -webkit-text-decoration: none;
   text-decoration: none;
   font-size: 14px;
   font-weight: 500;
   white-space: nowrap;
 }
 
-.nav-link:hover {
+a.nav-link:hover,
+a.nav-link:active {
   background-color: var(--bgColor-muted);
   color: var(--fgColor-default);
+  -webkit-text-decoration: none;
   text-decoration: none;
 }
 
-.nav-link.active {
+a.nav-link.active,
+a.nav-link.active:visited {
   background-color: var(--bgColor-muted);
   color: var(--fgColor-default);
+  font-weight: 600;
 }
 
-.nav-link svg {
+a.nav-link svg {
   fill: currentColor;
 }
 
