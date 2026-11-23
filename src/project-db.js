@@ -35,6 +35,9 @@ const DB_PUBLIC_PORT = Number(process.env.PROJECT_DB_PUBLIC_PORT || 5432);
 // alerta: nada é bloqueado, o usuário decide o que fazer com os dados.
 const ALERT_MB = Number(process.env.PROJECT_DB_ALERT_MB || 200);
 const ALERT_BYTES = ALERT_MB * 1024 * 1024;
+// Nome do banco interno do Hostfy (o app). Usado para negar acesso aos
+// roles de projeto.
+const APP_DB_NAME = String(process.env.POSTGRES_DB || 'hostly').trim();
 
 const IDENT_RE = /^[a-z_][a-z0-9_]{0,62}$/;
 const SQL_TIMEOUT_MS = 15000;
@@ -129,6 +132,14 @@ async function createDatabase(project) {
   );
   try {
     await pool.query(`CREATE DATABASE ${dbName} OWNER ${roleName} TEMPLATE template0 ENCODING 'UTF8'`);
+    // O banco do projeto fica acessivel apenas ao proprio role. Os demais
+    // bancos (o interno do Hostfy e os de outros projetos) sao negados.
+    await pool.query(`REVOKE ALL ON DATABASE ${dbName} FROM PUBLIC`).catch(() => {});
+    await pool.query(`GRANT CONNECT ON DATABASE ${dbName} TO ${roleName}`).catch(() => {});
+    // O role do projeto nao entra no banco interno do Hostfy.
+    if (IDENT_RE.test(APP_DB_NAME) && APP_DB_NAME !== dbName) {
+      await pool.query(`REVOKE CONNECT ON DATABASE ${APP_DB_NAME} FROM PUBLIC`).catch(() => {});
+    }
   } catch (e) {
     await pool.query(`DROP ROLE IF EXISTS ${roleName}`).catch(() => {});
     throw e;
