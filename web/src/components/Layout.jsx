@@ -2,6 +2,7 @@ import React, {useState} from 'react'
 import {Button, IconButton, Label, Text} from '@primer/react'
 import {
   BellIcon,
+  CopilotIcon,
   GearIcon,
   HomeIcon,
   MarkGithubIcon,
@@ -24,6 +25,7 @@ export function Wordmark({className}) {
 
 const NAV = [
   {to: '/', label: 'Visão geral', icon: HomeIcon, exact: true},
+  {to: '/ai-builder', label: 'Criar com IA', icon: CopilotIcon},
   {to: '/projects', label: 'Projetos', icon: PackageIcon},
   {to: '/deploy', label: 'Publicar', icon: UploadIcon},
   {to: '/docker', label: 'Docker', icon: ServerIcon},

@@ -7,6 +7,7 @@ import '@primer/primitives/dist/css/functional/themes/dark.css'
 
 import './fonts.css'
 import './styles.css'
+import './ai-builder.css'
 import App from './App.jsx'
 
 createRoot(document.getElementById('root')).render(

@@ -20,6 +20,7 @@ import GithubPage from './pages/Github.jsx'
 import SystemPage from './pages/System.jsx'
 import FilesPage from './pages/Files.jsx'
 import DatabasePage from './pages/Database.jsx'
+import AiBuilderPage from './pages/AiBuilder.jsx'
 
 function CookieBanner() {
   const [visible, setVisible] = useState(() => {
@@ -128,6 +129,8 @@ function Shell({user, onLogout}) {
         onRefresh={refreshAll}
       />
     )
+  } else if (path.startsWith('/ai-builder')) {
+    page = <AiBuilderPage onRefresh={refreshAll} />
   } else if (path.startsWith('/projects')) {
     page = <ProjectsPage projects={projects} loading={loading} onRefresh={refreshAll} {...capabilities} />
   } else if (path.startsWith('/deploy')) {
