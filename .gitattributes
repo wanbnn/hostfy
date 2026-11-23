@@ -1,0 +1,7 @@
+# Scripts de shell e configs do deploy precisam de LF no checkout:
+# CRLF quebra o interpretador (/usr/bin/env bash\r).
+*.sh text eol=lf
+deploy/haproxy.cfg text eol=lf
+
+# O resto do projeto usa CRLF no working copy (core.autocrlf=true).
+* text=auto
