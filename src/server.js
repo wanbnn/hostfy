@@ -25,6 +25,8 @@ const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || '')
   .split(',')
   .map(s => s.trim().toLowerCase())
   .filter(Boolean);
+// Quando definido, só e-mails deste domínio podem criar conta.
+const EMAIL_SUFFIX = String(process.env.EMAIL_SUFFIX || '').trim().toLowerCase();
 const upload = multer({ dest: '/tmp/hostly-uploads', limits: { fileSize: MAX_MB * 1024 * 1024, files: 1 } });
 // Upload de vários arquivos (gerenciador de arquivos do projeto).
 const uploadFiles = multer({ dest: '/tmp/hostly-uploads', limits: { fileSize: MAX_MB * 1024 * 1024, files: 20 } });
@@ -42,6 +44,12 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/api', rateLimit({ windowMs: 15 * 60 * 1000, limit: 600, standardHeaders: true, legacyHeaders: false }));
 
 const emailOk = s => typeof s === 'string' && s.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+// O sufixo pode vir como "@dominio.com" ou "dominio.com".
+const emailAllowed = s => {
+  if (!EMAIL_SUFFIX) return true;
+  const suffix = EMAIL_SUFFIX.startsWith('@') ? EMAIL_SUFFIX : `@${EMAIL_SUFFIX}`;
+  return typeof s === 'string' && s.toLowerCase().endsWith(suffix);
+};
 const slugOk = s => typeof s === 'string' && /^[a-z0-9](?:[a-z0-9-]{1,48}[a-z0-9])?$/.test(s);
 const safeName = s => String(s || '').trim().slice(0, 80);
 const repoSegment = s => /^[\w.-]{1,100}$/.test(String(s || ''));
@@ -131,6 +139,8 @@ app.post('/api/register', rateLimit({ windowMs: 60*60*1000, limit: 10 }), async 
     const password = req.body.password;
     if (!emailOk(email) || typeof password !== 'string' || password.length < 10 || password.length > 72)
       return res.status(400).json({ error: 'Informe um e-mail válido e senha entre 10 e 72 caracteres.' });
+    if (!emailAllowed(email))
+      return res.status(403).json({ error: 'Este e-mail não está autorizado a criar uma conta.' });
     const hash = await bcrypt.hash(password, 12);
     const isAdmin = ADMIN_EMAILS.includes(email);
     const { rows } = await pool.query(

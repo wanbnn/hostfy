@@ -17,6 +17,8 @@ services:
       STORAGE_DIR: /data/projects
       ENCRYPTION_SECRET: ${ENCRYPTION_SECRET:-change-me-encryption-secret}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      # Quando definido, só e-mails deste domínio podem criar conta.
+      EMAIL_SUFFIX: ${EMAIL_SUFFIX:-}
       # Banco de dados por projeto (mesma instância do Postgres do serviço "db")
       PROJECT_DB_HOST: ${PROJECT_DB_HOST:-db}
       PROJECT_DB_PORT: ${PROJECT_DB_PORT:-5432}
