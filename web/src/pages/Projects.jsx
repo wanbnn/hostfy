@@ -13,6 +13,8 @@ import {
 import {
   AlertIcon,
   CpuIcon,
+  DatabaseIcon,
+  FileIcon,
   GlobeIcon,
   LinkExternalIcon,
   PencilIcon,
@@ -27,6 +29,7 @@ import {
 import {api} from '../api.js'
 import {Empty, StatusLabel, TypeLabel, UsageBar, fmtBytes, fmtCpu, fmtRelative} from '../ui.jsx'
 import {useStats} from '../useStats.js'
+import {useRouter} from '../router.jsx'
 
 function LogsViewer({project, onClose}) {
   const [logs, setLogs] = useState(null)
@@ -151,6 +154,7 @@ function EditForm({project, onDone}) {
 function ProjectCard({project, stat, onChanged, dockerEnabled, runtimeEnabled}) {
   const [mode, setMode] = useState(null) // 'logs' | 'edit'
   const [busy, setBusy] = useState(false)
+  const {navigate} = useRouter()
   const isDynamic = project.type !== 'static'
   const displayUrl = String(project.url).replace(/^https?:\/\//, '')
   const cpu = stat?.cpuPercent ?? 0
@@ -179,6 +183,11 @@ function ProjectCard({project, stat, onChanged, dockerEnabled, runtimeEnabled}) 
             <Text as="strong">{project.name}</Text>
             <TypeLabel type={project.type} />
             {isDynamic ? <StatusLabel status={project.status} /> : null}
+            {project.has_database ? (
+              <Text className="muted small" title="Projeto com banco de dados próprio">
+                <DatabaseIcon size={12} /> banco
+              </Text>
+            ) : null}
             {project.source === 'github' ? <Text className="muted small">GitHub · {project.repo_full_name}</Text> : null}
           </Stack>
           <Link href={project.url} target="_blank" rel="noopener" className="project-slug">
@@ -214,6 +223,12 @@ function ProjectCard({project, stat, onChanged, dockerEnabled, runtimeEnabled}) 
           ) : null}
           <Button as="a" href={project.url} target="_blank" rel="noopener" size="small" leadingVisual={GlobeIcon}>
             Abrir
+          </Button>
+          <Button size="small" leadingVisual={FileIcon} onClick={() => navigate(`/files/${project.id}`)}>
+            Arquivos
+          </Button>
+          <Button size="small" leadingVisual={DatabaseIcon} onClick={() => navigate(`/database/${project.id}`)}>
+            Banco
           </Button>
           <IconButton icon={PencilIcon} aria-label="Editar" size="small" onClick={() => setMode(mode === 'edit' ? null : 'edit')} />
           <IconButton

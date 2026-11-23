@@ -450,6 +450,7 @@ async function restartApp(projectId) {
       .catch(async () => {
         await docker.composeStart({ projectName: app.projectName, dir: app.dir, composeFile: app.composeFile });
       });
+    await docker.attachDatabasesNetwork(app.projectName).catch(() => {});
     const target = await docker.resolveWebTarget({
       projectName: app.projectName,
       dir: app.dir,
@@ -492,6 +493,8 @@ async function deployDockerApp(payload) {
   const env = payload.env || {};
 
   await docker.composeUp({ projectName, dir, composeFile, env });
+    // O projeto precisa alcançar o Postgres do Hostfy (alias "db").
+  await docker.attachDatabasesNetwork(projectName).catch(() => {});
   const target = await docker.resolveWebTarget({
     projectName,
     dir,

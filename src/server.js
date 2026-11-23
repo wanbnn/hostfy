@@ -13,6 +13,8 @@ const { sign, requireAuth, setSession, COOKIE } = require('./auth');
 const { detectProjectType } = require('./project-detect');
 const runner = require('./runner-client');
 const github = require('./github');
+const projectDb = require('./project-db');
+const files = require('./files');
 const { encrypt, decrypt } = require('./secrets');
 
 const app = express();
@@ -24,12 +26,17 @@ const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || '')
   .map(s => s.trim().toLowerCase())
   .filter(Boolean);
 const upload = multer({ dest: '/tmp/hostly-uploads', limits: { fileSize: MAX_MB * 1024 * 1024, files: 1 } });
+// Upload de vários arquivos (gerenciador de arquivos do projeto).
+const uploadFiles = multer({ dest: '/tmp/hostly-uploads', limits: { fileSize: MAX_MB * 1024 * 1024, files: 20 } });
 app.disable('x-powered-by');
 app.use(helmet({ contentSecurityPolicy: { directives: {
   defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'"],
   imgSrc: ["'self'", 'data:'], connectSrc: ["'self'"], objectSrc: ["'none'"], frameAncestors: ["'none'"]
 }}}));
-app.use(express.json({ limit: '128kb' }));
+// O corpo do painel é pequeno; só a edição de arquivos aceita payloads maiores.
+const jsonSmall = express.json({ limit: '128kb' });
+const jsonLarge = express.json({ limit: '4mb' });
+app.use((req, res, next) => (req.path.endsWith('/files/content') ? jsonLarge : jsonSmall)(req, res, next));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/api', rateLimit({ windowMs: 15 * 60 * 1000, limit: 600, standardHeaders: true, legacyHeaders: false }));
@@ -165,7 +172,9 @@ app.get('/api/me', requireAuth, async (req,res) => {
 // ---------------------------------------------------------------------------
 app.get('/api/projects', requireAuth, async (req,res) => {
   const { rows } = await pool.query(
-    `SELECT ${PROJECT_COLUMNS} FROM projects p WHERE p.user_id=$1 ORDER BY p.created_at DESC`,
+    `SELECT ${PROJECT_COLUMNS}, (d.project_id IS NOT NULL) AS has_database
+       FROM projects p LEFT JOIN project_databases d ON d.project_id=p.id
+      WHERE p.user_id=$1 ORDER BY p.created_at DESC`,
     [req.user.sub]);
   const caps = await capabilities();
   res.json({
@@ -230,12 +239,30 @@ async function resolveComposeFile(dir, requested) {
 
 async function ownedProjectFull(req) {
   const { rows } = await pool.query(
-    `SELECT ${PROJECT_COLUMNS}, s.storage_key
+    `SELECT ${PROJECT_COLUMNS}, p.user_id, s.storage_key
        FROM projects p LEFT JOIN project_storage s ON s.project_id=p.id
       WHERE p.id=$1 AND p.user_id=$2`,
     [req.params.id, req.user.sub]
   );
   return rows[0];
+}
+
+// Projeto do usuário + a pasta onde os arquivos ficam no volume.
+async function ownedProjectDir(req) {
+  const project = await ownedProjectFull(req);
+  if (!project || !project.storage_key) return null;
+  return { project, dir: path.join(STORAGE, project.storage_key) };
+}
+
+// Aviso no painel (usado pelos bancos de projeto e pelo gerenciador de arquivos).
+async function notifyUser({ userId, projectId, level, title, body, dedupeKey }) {
+  if (!userId) return;
+  await pool.query(
+    `INSERT INTO notifications (user_id, project_id, level, title, body, meta, dedupe_key)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (user_id, dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING`,
+    [userId, projectId || null, level || 'info', title, body || null, JSON.stringify({}), dedupeKey || null]
+  );
 }
 
 // Envia um projeto dinâmico (PHP/Node/Docker) para o runner conforme o tipo.
@@ -677,8 +704,12 @@ app.delete('/api/projects/:id', requireAuth, async (req,res) => {
     if (!owned.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Projeto não encontrado.' }); }
     const { id, type, storage_key } = owned.rows[0];
     if (type !== 'static' && runner.enabled()) await runner.remove(String(id)).catch(() => {});
+    // O banco do projeto sai junto — guardamos os dados antes do DELETE (o
+    // ON DELETE CASCADE apagaria o registro de project_databases).
+    const database = await client.query('SELECT * FROM project_databases WHERE project_id=$1', [id]);
     await client.query('DELETE FROM projects WHERE id=$1', [id]);
     await client.query('COMMIT');
+    if (database.rows[0]) await projectDb.dropDatabase(database.rows[0]).catch(() => {});
     if (storage_key) await fs.rm(path.join(STORAGE, storage_key), { recursive: true, force: true });
     res.json({ ok: true });
   } catch (e) {
@@ -686,6 +717,253 @@ app.delete('/api/projects/:id', requireAuth, async (req,res) => {
     console.error(e); res.status(500).json({ error: 'Não foi possível excluir o projeto.' });
   } finally { client.release(); }
 });
+
+// ---------------------------------------------------------------------------
+// Banco de dados do projeto
+//
+// Cada projeto tem no máximo um banco (garantido pelo PRIMARY KEY de
+// project_databases). O banco vive na mesma instância do PostgreSQL do
+// serviço "db" — nenhum contêiner ou imagem extra é criado.
+// ---------------------------------------------------------------------------
+
+// Escreve as variáveis de conexão no projeto e reinicia o app (quando existe).
+async function applyDatabaseEnv(project, database) {
+  const env = parseEnv(project.env_json) || {};
+  env.DATABASE_URL = database.url;
+  env.DB_HOST = database.host;
+  env.DB_PORT = String(database.port);
+  env.DB_NAME = database.name;
+  env.DB_USER = database.user;
+  env.DB_PASSWORD = database.password;
+  await pool.query('UPDATE projects SET env_json=$1, updated_at=NOW() WHERE id=$2', [JSON.stringify(env), project.id]);
+  if (project.type === 'static' || !runner.enabled() || !project.storage_key) return env;
+  try {
+    const result = await runnerDeploy({ ...project, env_json: env }, project.storage_key);
+    await applyDeployResult(project.id, result);
+  } catch (e) {
+    console.error('Falha ao reiniciar o projeto após criar o banco:', e.message);
+  }
+  return env;
+}
+
+async function removeDatabaseEnv(project) {
+  const env = parseEnv(project.env_json) || {};
+  for (const key of ['DATABASE_URL', 'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD']) delete env[key];
+  await pool.query('UPDATE projects SET env_json=$1, updated_at=NOW() WHERE id=$2', [JSON.stringify(env), project.id]);
+  if (project.type === 'static' || !runner.enabled() || !project.storage_key) return env;
+  try {
+    const result = await runnerDeploy({ ...project, env_json: env }, project.storage_key);
+    await applyDeployResult(project.id, result);
+  } catch (e) {
+    console.error('Falha ao reiniciar o projeto após remover o banco:', e.message);
+  }
+  return env;
+}
+
+app.get('/api/projects/:id/database', requireAuth, async (req,res) => {
+  try {
+    const project = await ownedProjectFull(req);
+    if (!project) return res.status(404).json({ error: 'Projeto não encontrado.' });
+    const record = await projectDb.getDatabase(project.id);
+    if (!record) return res.json({ database: null, alertBytes: projectDb.ALERT_BYTES, alertMb: projectDb.ALERT_MB });
+    const refreshed = await projectDb
+      .refreshSize(record, {
+        notify: payload => notifyUser({ userId: req.user.sub, projectId: project.id, ...payload }),
+      })
+      .catch(() => record);
+    res.json({ database: projectDb.describe(refreshed), alertBytes: projectDb.ALERT_BYTES, alertMb: projectDb.ALERT_MB });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Não foi possível consultar o banco do projeto.' });
+  }
+});
+
+app.post('/api/projects/:id/database', requireAuth, async (req,res) => {
+  try {
+    const project = await ownedProjectFull(req);
+    if (!project) return res.status(404).json({ error: 'Projeto não encontrado.' });
+    const database = await projectDb.createDatabase(project);
+    await applyDatabaseEnv(project, database);
+    res.status(201).json({ database });
+  } catch (e) {
+    console.error(e);
+    const conflict = /já possui um banco/i.test(e.message);
+    res.status(conflict ? 409 : 500).json({ error: e.message || 'Não foi possível criar o banco de dados.' });
+  }
+});
+
+app.post('/api/projects/:id/database/password', requireAuth, async (req,res) => {
+  try {
+    const project = await ownedProjectFull(req);
+    if (!project) return res.status(404).json({ error: 'Projeto não encontrado.' });
+    const record = await projectDb.getDatabase(project.id);
+    if (!record) return res.status(404).json({ error: 'Este projeto ainda não tem banco de dados.' });
+    await projectDb.resetPassword(record);
+    const updated = await projectDb.getDatabase(project.id);
+    const database = projectDb.describe(updated);
+    await applyDatabaseEnv(project, database);
+    res.json({ database });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Não foi possível redefinir a senha.' });
+  }
+});
+
+app.delete('/api/projects/:id/database', requireAuth, async (req,res) => {
+  try {
+    const project = await ownedProjectFull(req);
+    if (!project) return res.status(404).json({ error: 'Projeto não encontrado.' });
+    const record = await projectDb.getDatabase(project.id);
+    if (!record) return res.status(404).json({ error: 'Este projeto não tem banco de dados.' });
+    await projectDb.dropDatabase(record);
+    await pool.query('DELETE FROM project_databases WHERE project_id=$1', [project.id]);
+    await removeDatabaseEnv(project);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Não foi possível excluir o banco de dados.' });
+  }
+});
+
+app.get('/api/projects/:id/database/tables', requireAuth, async (req,res) => {
+  try {
+    const project = await ownedProjectFull(req);
+    if (!project) return res.status(404).json({ error: 'Projeto não encontrado.' });
+    const record = await projectDb.getDatabase(project.id);
+    if (!record) return res.status(404).json({ error: 'Este projeto ainda não tem banco de dados.' });
+    res.json({ tables: await projectDb.listTables(record) });
+  } catch (e) {
+    console.error(e);
+    res.status(502).json({ error: e.message || 'Não foi possível listar as tabelas.' });
+  }
+});
+
+app.post('/api/projects/:id/database/query', requireAuth, async (req,res) => {
+  try {
+    const project = await ownedProjectFull(req);
+    if (!project) return res.status(404).json({ error: 'Projeto não encontrado.' });
+    const record = await projectDb.getDatabase(project.id);
+    if (!record) return res.status(404).json({ error: 'Este projeto ainda não tem banco de dados.' });
+    res.json(await projectDb.runQuery(record, req.body.sql));
+  } catch (e) {
+    console.error(e);
+    res.status(400).json({ error: e.message || 'Não foi possível executar a instrução.' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Gerenciador de arquivos do projeto
+//
+// Permite listar, criar, editar, renomear, enviar e excluir arquivos sem
+// precisar apagar e republicar o projeto.
+// ---------------------------------------------------------------------------
+
+function safeUploadName(original) {
+  const base = path.basename(String(original || '').replace(/\\/g, '/'));
+  const clean = base.replace(/[^A-Za-z0-9._\- ]+/g, '_').replace(/^\.+/, '').trim();
+  return clean || 'arquivo';
+}
+
+app.get('/api/projects/:id/files', requireAuth, async (req,res) => {
+  try {
+    const ctx = await ownedProjectDir(req);
+    if (!ctx) return res.status(404).json({ error: 'Projeto não encontrado.' });
+    res.json(await files.listDirectory(ctx.dir, req.query.path || ''));
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'Não foi possível listar a pasta.' });
+  }
+});
+
+app.get('/api/projects/:id/files/content', requireAuth, async (req,res) => {
+  try {
+    const ctx = await ownedProjectDir(req);
+    if (!ctx) return res.status(404).json({ error: 'Projeto não encontrado.' });
+    res.json(await files.readTextFile(ctx.dir, req.query.path || ''));
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'Não foi possível abrir o arquivo.' });
+  }
+});
+
+app.get('/api/projects/:id/files/download', requireAuth, async (req,res) => {
+  try {
+    const ctx = await ownedProjectDir(req);
+    if (!ctx) return res.status(404).json({ error: 'Projeto não encontrado.' });
+    const target = files.resolveInside(ctx.dir, req.query.path || '');
+    const stat = await fs.lstat(target).catch(() => null);
+    if (!stat || !stat.isFile()) return res.status(404).json({ error: 'Arquivo não encontrado.' });
+    res.download(target, path.basename(target));
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'Não foi possível baixar o arquivo.' });
+  }
+});
+
+app.put('/api/projects/:id/files/content', requireAuth, async (req,res) => {
+  try {
+    const ctx = await ownedProjectDir(req);
+    if (!ctx) return res.status(404).json({ error: 'Projeto não encontrado.' });
+    const file = await files.writeTextFile(ctx.dir, req.body.path, req.body.content);
+    res.json({ file });
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'Não foi possível salvar o arquivo.' });
+  }
+});
+
+app.post('/api/projects/:id/files/dir', requireAuth, async (req,res) => {
+  try {
+    const ctx = await ownedProjectDir(req);
+    if (!ctx) return res.status(404).json({ error: 'Projeto não encontrado.' });
+    res.json(await files.createDirectory(ctx.dir, req.body.path));
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'Não foi possível criar a pasta.' });
+  }
+});
+
+app.post('/api/projects/:id/files/rename', requireAuth, async (req,res) => {
+  try {
+    const ctx = await ownedProjectDir(req);
+    if (!ctx) return res.status(404).json({ error: 'Projeto não encontrado.' });
+    res.json(await files.renameEntry(ctx.dir, req.body.from, req.body.to));
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'Não foi possível renomear.' });
+  }
+});
+
+app.delete('/api/projects/:id/files', requireAuth, async (req,res) => {
+  try {
+    const ctx = await ownedProjectDir(req);
+    if (!ctx) return res.status(404).json({ error: 'Projeto não encontrado.' });
+    const target = req.query.path !== undefined ? req.query.path : req.body.path;
+    res.json(await files.removeEntry(ctx.dir, target));
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'Não foi possível excluir.' });
+  }
+});
+
+app.post(
+  '/api/projects/:id/files/upload',
+  requireAuth,
+  uploadFiles.fields([{ name: 'files', maxCount: 20 }, { name: 'file', maxCount: 1 }]),
+  async (req,res) => {
+    const uploaded = req.files || {};
+    const list = [...(uploaded.files || []), ...(uploaded.file || [])];
+    try {
+      const ctx = await ownedProjectDir(req);
+      if (!ctx) return res.status(404).json({ error: 'Projeto não encontrado.' });
+      if (!list.length) return res.status(400).json({ error: 'Selecione ao menos um arquivo.' });
+      const folder = files.normalizeRelative(req.body.path || '');
+      const saved = [];
+      for (const file of list) {
+        const name = safeUploadName(file.originalname);
+        saved.push(await files.saveUploadedFile(ctx.dir, files.joinRelative(folder, name), file.path));
+      }
+      res.status(201).json({ files: saved });
+    } catch (e) {
+      res.status(400).json({ error: e.message || 'Não foi possível enviar os arquivos.' });
+    } finally {
+      for (const file of list) await fs.rm(file.path, { force: true }).catch(() => {});
+    }
+  }
+);
 
 // ---------------------------------------------------------------------------
 // Notificações

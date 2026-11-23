@@ -19,6 +19,8 @@ const { execFile } = require('child_process');
 const DOCKER_BIN = process.env.DOCKER_BIN || 'docker';
 const COMPOSE_TIMEOUT = Number(process.env.DOCKER_TIMEOUT_MS || 20 * 60 * 1000);
 const QUICK_TIMEOUT = Number(process.env.DOCKER_QUICK_TIMEOUT_MS || 60 * 1000);
+// Rede compartilhada onde fica o Postgres dos projetos (serviço "db").
+const DATABASES_NETWORK = process.env.DATABASES_NETWORK || 'hostfy_databases';
 
 function envFor(extra) {
   const env = { ...process.env, ...(extra || {}) };
@@ -221,6 +223,33 @@ async function removeProjectResources(projectName) {
       } catch {}
     }
   } catch {}
+}
+
+// Conecta os contêineres do projeto à rede de bancos, para que eles
+// alcancem o Postgres do Hostfy pelo alias "db" (porta 5432).
+async function attachDatabasesNetwork(projectName) {
+  let ids = [];
+  try {
+    const { stdout } = await quick([
+      'ps',
+      '-aq',
+      '--filter',
+      `label=com.docker.compose.project=${projectName}`,
+    ]);
+    ids = stdout.split('\n').map(s => s.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+  const attached = [];
+  for (const id of ids) {
+    try {
+      await quick(['network', 'connect', DATABASES_NETWORK, id]);
+      attached.push(id);
+    } catch {
+      // Já está na rede (ou o contêiner não aceita) — nada a fazer.
+    }
+  }
+  return attached;
 }
 
 // Descobre o alvo do proxy: contêiner do serviço web + porta interna.
@@ -477,6 +506,7 @@ module.exports = {
   composeRestart,
   composeDown,
   composeLogs,
+  attachDatabasesNetwork,
   removeProjectResources,
   resolveWebTarget,
   stats,

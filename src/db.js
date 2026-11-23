@@ -40,6 +40,20 @@ async function initDb() {
       storage_key TEXT NOT NULL UNIQUE
     );
 
+    -- Um banco por projeto (um por linha: a chave primária garante 1:1).
+    CREATE TABLE IF NOT EXISTS project_databases (
+      project_id BIGINT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      db_name TEXT NOT NULL UNIQUE,
+      role_name TEXT NOT NULL UNIQUE,
+      password_enc TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'ready',
+      size_bytes BIGINT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS project_databases_user_idx ON project_databases(user_id);
+
     CREATE TABLE IF NOT EXISTS github_accounts (
       user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
       login TEXT NOT NULL,

@@ -18,6 +18,8 @@ import DeployPage from './pages/Deploy.jsx'
 import DockerPage from './pages/Docker.jsx'
 import GithubPage from './pages/Github.jsx'
 import SystemPage from './pages/System.jsx'
+import FilesPage from './pages/Files.jsx'
+import DatabasePage from './pages/Database.jsx'
 
 function CookieBanner() {
   const [visible, setVisible] = useState(() => {
@@ -108,7 +110,25 @@ function Shell({user, onLogout}) {
   }
 
   let page
-  if (path.startsWith('/projects')) {
+  if (path.startsWith('/files/')) {
+    const id = Number(path.split('/')[2])
+    page = (
+      <FilesPage
+        project={projects.find(project => Number(project.id) === id)}
+        loading={loading}
+        onRefresh={refreshAll}
+      />
+    )
+  } else if (path.startsWith('/database/')) {
+    const id = Number(path.split('/')[2])
+    page = (
+      <DatabasePage
+        project={projects.find(project => Number(project.id) === id)}
+        loading={loading}
+        onRefresh={refreshAll}
+      />
+    )
+  } else if (path.startsWith('/projects')) {
     page = <ProjectsPage projects={projects} loading={loading} onRefresh={refreshAll} {...capabilities} />
   } else if (path.startsWith('/deploy')) {
     page = <DeployPage capabilities={capabilities} onDone={refreshAll} />

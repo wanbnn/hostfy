@@ -11,12 +11,21 @@ Cada conta pode publicar:
 - **Projetos Docker Compose** — a partir de um ZIP ou de um repositório do GitHub (público ou privado);
   o Hostfy roda `docker compose up -d --build --remove-orphans` e publica o serviço web em subdomínio.
 
+Além disso, cada projeto tem:
+
+- **Um banco de dados PostgreSQL próprio** (na mesma instância do Postgres do servidor, sem contêiner
+  ou imagem extra) — veja "Banco de dados por projeto".
+- **Um gerenciador de arquivos** — liste, edite, envie, renomeie e exclua arquivos sem apagar e
+  republicar o projeto — veja "Gerenciador de arquivos".
+
 ## Páginas do painel
 
 | Rota | O que faz |
 |---|---|
 | `/` | **Visão geral** — resumo dos projetos, consumo total de CPU/memória e avisos de limpeza. |
-| `/projects` | **Projetos** — gerenciamento com métricas por projeto, edição, logs, reiniciar/parar/redeploy. |
+| `/projects` | **Projetos** — gerenciamento com métricas por projeto, edição, logs, reiniciar/parar/redeploy, acesso a **Arquivos** e **Banco**. |
+| `/files/:id` | **Arquivos** — gerenciador de arquivos do projeto (listar, editar, enviar, renomear, excluir). |
+| `/database/:id` | **Banco** — banco de dados do projeto: conexão, uso de disco, tabelas e console SQL. |
 | `/deploy` | **Publicar** — envio de ZIP (estático/PHP/Node) ou de um projeto Docker Compose. |
 | `/docker` | **Docker** — gerenciamento das stacks Compose, métricas e ciclo de vida. |
 | `/github` | **GitHub** — vincular conta (PAT), listar repositórios e publicar direto do repositório. |
@@ -118,6 +127,66 @@ públicos e privados e permite publicar um deles como projeto Docker (branch/ref
 compose, serviço web, porta e variáveis). O botão **Refazer deploy** baixa novamente o código e
 reconstrói a stack.
 
+## Banco de dados por projeto
+
+Cada projeto pode ter **um** banco de dados próprio, criado dentro da **mesma instância** do
+PostgreSQL que já roda no serviço `db` (`postgres:17-alpine`). **Nenhum contêiner ou imagem extra é
+criado** — o Hostfy apenas executa `CREATE DATABASE` e `CREATE ROLE` no Postgres que já existe.
+
+- **Um banco por projeto.** A chave primária de `project_databases` é o `project_id`: o painel recusa
+  um segundo banco para o mesmo projeto.
+- **Usuário próprio e sem privilégios.** Cada banco tem um role dedicado (`NOSUPERUSER`,
+  `NOCREATEDB`, `NOCREATEROLE`, limite de 20 conexões). Ele só enxerga o próprio banco — não pode
+  tocar nos bancos dos outros usuários nem criar databases/roles.
+- **Senha criptografada** (AES-256-GCM) em `project_databases.password_enc`; a senha em texto puro só
+  é devolvida ao dono do projeto (no painel e no `DATABASE_URL`).
+- **Variáveis de conexão automáticas.** Ao criar o banco, o Hostfy grava no projeto
+  `DATABASE_URL`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` e `DB_PASSWORD`, e reinicia a aplicação
+  (quando o projeto é dinâmico).
+- **Acesso de dentro do contêiner do projeto:** host `db`, porta `5432`. O runner conecta os
+  contêineres do projeto à rede `hostfy_databases`, onde fica o Postgres — assim o projeto alcança o
+  banco sem enxergar o painel nem o runner.
+- **Console SQL** na página `/database/:id`: uma instrução por vez, até 500 linhas de resultado,
+  timeout de 15 s e bloqueio de `DROP/CREATE/ALTER DATABASE`, `CREATE/ALTER/DROP ROLE` e
+  `pg_terminate_backend`.
+- **Tamanho:** o painel mostra quanto o banco ocupa (`pg_database_size`). Acima de
+  `PROJECT_DB_ALERT_MB` (padrão: 200 MB) o usuário recebe um aviso — **nada é bloqueado**; o
+  PostgreSQL compartilhado não tem cota rígida por database. O administrador pode acompanhar o
+  consumo total em `/system`.
+- **Exclusão:** apagar o projeto (ou o botão "Excluir banco") derruba o database e o role.
+
+Exemplo de uso em `docker-compose.yml` do projeto:
+
+```yaml
+services:
+  web:
+    build: .
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    expose:
+      - "80"
+```
+
+Em PHP/Node basta ler `process.env.DATABASE_URL` (ou `$_ENV['DATABASE_URL']`): o Hostfy já passa a
+variável para o processo.
+
+## Gerenciador de arquivos
+
+A página `/files/:id` permite trabalhar nos arquivos de um projeto **sem apagá-lo e republicá-lo**:
+
+- listar pastas e arquivos (com tamanho e data), navegar por trilha de pastas;
+- abrir arquivos de texto no editor e salvar;
+- enviar vários arquivos de uma vez;
+- criar pastas, renomear e excluir (arquivo ou pasta inteira);
+- baixar arquivos binários.
+
+Segurança: todo caminho é resolvido dentro da pasta do projeto (travessia é bloqueada), links
+simbólicos são ignorados na listagem e recusados na escrita, o upload é limitado por
+`MAX_UPLOAD_MB` e a edição no painel por `MAX_EDIT_BYTES`.
+
+> Alterações em arquivos só valem para o site depois de um **restart** do projeto (botão "Reiniciar"),
+> pois o runner mantém o processo em memória.
+
 ## Limpeza automática e manutenção do Docker
 
 O serviço `runner` otimiza o Docker do host automaticamente, com avisos aos usuários:
@@ -198,6 +267,11 @@ O backend (`npm start`) serve os arquivos já compilados de `public/`.
 | `RUNNER_PHP_MEMORY` | 256M | `memory_limit` por app PHP |
 | `RUNNER_MAX_RESTARTS` | 5 | Reinícios automáticos antes de marcar erro |
 | `MAX_UPLOAD_MB` | 100 | Limite do ZIP recebido |
+| `PROJECT_DB_HOST` | db | Host do Postgres dos projetos (visto da rede do compose) |
+| `PROJECT_DB_PORT` | 5432 | Porta do Postgres dos projetos |
+| `PROJECT_DB_ALERT_MB` | 200 | Tamanho (MB) que dispara o aviso de banco grande (não bloqueia) |
+| `MAX_EDIT_BYTES` | 2 | Tamanho máximo (MB) de um arquivo editado no painel |
+| `DATABASES_NETWORK` | hostfy_databases | Rede Docker onde o Postgres é publicado para os projetos |
 | `ADMIN_EMAILS` | (vazio) | E-mails (separados por vírgula) com acesso à página `/system` |
 | `ENCRYPTION_SECRET` | JWT_SECRET | Chave usada para criptografar os tokens do GitHub |
 | `CLEANUP_ENABLED` | true | Liga a limpeza automática do Docker |
@@ -227,6 +301,10 @@ Os dados ficam nos volumes Docker `postgres_data` e `projects`.
   - O código pode acessar a rede. Restrinja a saída (egress) se for expor para usuários públicos.
   - Considere usuário do SO por projeto e/ou um contêiner por projeto antes de escalar.
 - **Socket do Docker:** para gerenciar os projetos Compose, o `runner` monta `/var/run/docker.sock` e roda como **root** dentro do contêiner — isso equivale a acesso root no host. Não execute projetos de usuários desconhecidos; prefira um host dedicado e com limites de recursos. Considere usar um proxy de socket (ex.: `docker-socket-proxy`) restringindo a API no futuro.
+- **Bancos por projeto:** os contêineres dos projetos são conectados à rede `hostfy_databases`, onde
+  fica o Postgres. Eles **não** enxergam o painel nem a API do runner. Ainda assim, o usuário do
+  projeto tem acesso ao próprio banco por completo (inclusive `DROP TABLE`) e o console SQL do painel
+  roda com esse mesmo usuário — restrinja quem pode publicar projetos.
 - **Limpeza do Docker:** a manutenção automática (e o prune em `/system`) age sobre o Docker do host, não apenas sobre recursos do Hostfy. Revise os avisos, a carência (`CLEANUP_GRACE_HOURS`) e o preview do prune antes de habilitar em produção.
 - A API interna do runner (`RUNNER_CONTROL_PORT`) **não deve ser exposta** publicamente; defina um `RUNNER_TOKEN` forte.
 - Para produção, use HTTPS, proxy reverso e configure `APP_ORIGIN`, `PROJECTS_ORIGIN`, `PROJECTS_DOMAIN` e `PROJECTS_SCHEME` com valores reais.
@@ -238,5 +316,11 @@ Os dados ficam nos volumes Docker `postgres_data` e `projects`.
 - Com `PROJECTS_DOMAIN` configurado, sites estáticos e PHP/Node usam subdomínio (`SLUG.PROJECTS_DOMAIN`); o runner recebe o subdomínio e repassa os estáticos ao servidor de arquivos. Sem domínio, os estáticos ficam no caminho (`/SLUG/`).
 - PHP usa o servidor embutido (`php -S`) com um roteador que encaminha para `index.php` quando o arquivo não existe — bom para apps de front controller, mas não é um `php-fpm` de alta concorrência.
 - Node usa o `start` do `package.json` ou o arquivo de entrada detectado; não há detecção de framework (Next, Nest etc. rodam pelo script `start`).
-- Sem bancos de dados gerenciados por projeto, sem variáveis de ambiente customizadas pela UI e sem domínios personalizados por projeto (ainda).
 - Sem build/instalação isolados por projeto: o `node_modules` fica no diretório do projeto, no volume compartilhado.
+- **Banco por projeto:** o Postgres é compartilhado entre todos os usuários. Não existe cota rígida de
+  tamanho por database (o PostgreSQL não a oferece) — o painel apenas avisa a partir de
+  `PROJECT_DB_ALERT_MB`. Para isolamento forte, use um host dedicado ou um serviço de banco
+  dedicado.
+- **Senha do banco:** a senha do projeto é gravada em texto puro nas variáveis de ambiente do
+  projeto (`projects.env_json`), porque o processo precisa dela. Trate `DATABASE_URL` como segredo e
+  não exponha o painel.

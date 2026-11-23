@@ -862,3 +862,200 @@ a.nav-link svg {
   font-size: 12px;
   color: var(--fgColor-muted);
 }
+
+/* ------------------------------------------------------------------ */
+/* Gerenciador de arquivos e banco de dados                          */
+/* ------------------------------------------------------------------ */
+
+/* Trilha de pastas */
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.crumb-sep {
+  color: var(--fgColor-muted);
+}
+
+a.crumb-link,
+button.crumb-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--fgColor-accent, #2f81f7);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+a.crumb-link:hover,
+button.crumb-link:hover {
+  text-decoration: underline;
+}
+
+/* Tabela de arquivos */
+.file-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.file-table th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--fgColor-muted);
+  font-weight: 600;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--borderColor-default);
+}
+
+.file-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--borderColor-default);
+  vertical-align: middle;
+}
+
+.file-table tr:last-child td {
+  border-bottom: none;
+}
+
+.file-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--fgColor-default);
+  cursor: pointer;
+  text-align: left;
+}
+
+.file-name:hover {
+  color: var(--fgColor-accent, #2f81f7);
+  text-decoration: underline;
+}
+
+.file-name svg {
+  fill: var(--fgColor-muted);
+}
+
+.col-size {
+  width: 120px;
+  color: var(--fgColor-muted);
+}
+
+.col-date {
+  width: 180px;
+  color: var(--fgColor-muted);
+}
+
+.col-actions {
+  width: 110px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.file-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: var(--borderRadius-small, 4px);
+  color: var(--fgColor-muted);
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+.file-action:hover {
+  color: var(--fgColor-default);
+  background-color: var(--bgColor-muted);
+}
+
+.file-action.danger:hover {
+  color: var(--fgColor-danger, #f85149);
+}
+
+/* Editor */
+.code-editor {
+  min-height: 220px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
+.editor-actions {
+  margin-top: 10px;
+  align-items: center;
+}
+
+.folder-form {
+  margin-bottom: 12px;
+  align-items: center;
+}
+
+/* Conexão com o banco */
+.conn-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.conn-label {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--fgColor-muted);
+}
+
+.conn-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.conn-value input {
+  font-family: var(--fontStack-monospace, ui-monospace, monospace);
+  font-size: 12px;
+}
+
+.panel-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+/* Resultado do console SQL */
+.sql-result {
+  margin-top: 12px;
+}
+
+.table-scroll {
+  margin-top: 6px;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--borderColor-default);
+  border-radius: var(--borderRadius-medium);
+}
+
+.table-scroll .file-table th {
+  position: sticky;
+  top: 0;
+  background-color: var(--bgColor-muted);
+}
