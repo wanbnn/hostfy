@@ -2,11 +2,19 @@
 /* AI Builder – layout fullscreen com chat + preview                    */
 /* ------------------------------------------------------------------ */
 
-/* A página sai do container padrão para ocupar o viewport completo */
+/* Ajuste do container para 100% de largura na página do AI Builder */
+.container.container-full,
+.container:has(.ai-builder) {
+  max-width: 100%;
+  width: 100%;
+  padding: 0;
+}
+
+/* A página ocupa o viewport completo */
 .ai-builder {
   display: flex;
+  width: 100%;
   height: calc(100vh - 65px - 73px); /* viewport menos header e footer */
-  margin: -24px; /* anula o padding do .container */
   overflow: hidden;
 }
 

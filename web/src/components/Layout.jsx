@@ -113,7 +113,7 @@ export function Layout({user, onLogout, notifications, unread, onReadAll, onRead
           </div>
         </div>
       </header>
-      <main className="container">{children}</main>
+      <main className={`container ${path.startsWith('/ai-builder') ? 'container-full' : ''}`}>{children}</main>
       <footer className="app-footer">Hostfy · Hospedagem simples para a web.</footer>
     </div>
   )
