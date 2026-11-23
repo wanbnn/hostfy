@@ -22,6 +22,9 @@ const { encrypt, decrypt } = require('./secrets');
 // Host/porta do PostgreSQL como vistos de dentro da rede do docker-compose.
 const DB_HOST = process.env.PROJECT_DB_HOST || 'db';
 const DB_PORT = Number(process.env.PROJECT_DB_PORT || 5432);
+// Porta do Postgres publicada no host (127.0.0.1). Quando existe, o painel
+// também mostra a URL para conectar de fora do contêiner (cliente SQL local).
+const DB_HOST_PORT = Number(process.env.DB_HOST_PORT || 0);
 // Tamanho (em MB) a partir do qual o Hostfy avisa o usuário. É apenas um
 // alerta: nada é bloqueado, o usuário decide o que fazer com os dados.
 const ALERT_MB = Number(process.env.PROJECT_DB_ALERT_MB || 200);
@@ -76,6 +79,12 @@ function assertIdentifier(name) {
 
 function connectionUrl({ db_name, role_name, password }) {
   return `postgres://${role_name}:${password}@${DB_HOST}:${DB_PORT}/${db_name}`;
+}
+
+// Mesma coisa, mas apontando para a porta publicada no host (acesso local).
+function externalUrl({ db_name, role_name, password }) {
+  if (!DB_HOST_PORT) return null;
+  return `postgres://${role_name}:${password}@127.0.0.1:${DB_HOST_PORT}/${db_name}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +267,8 @@ function describe(record, password) {
     user: record.role_name,
     password: plain,
     url: plain ? connectionUrl({ db_name: record.db_name, role_name: record.role_name, password: plain }) : null,
+    externalUrl: plain ? externalUrl({ db_name: record.db_name, role_name: record.role_name, password: plain }) : null,
+    hostPort: DB_HOST_PORT || null,
     alertBytes: ALERT_BYTES,
   };
 }
@@ -298,5 +309,6 @@ module.exports = {
   listTables,
   describe,
   connectionUrl,
+  externalUrl,
   withClient,
 };

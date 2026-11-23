@@ -269,7 +269,10 @@ export default function DatabasePage({project, loading, onChanged}) {
                               <Field label="Banco" value={database.name} />
                               <Field label="Usuário" value={database.user} />
                               <Field label="Senha" value={database.password} secret />
-                              <Field label="DATABASE_URL" value={database.url} />
+                              <Field label="DATABASE_URL (dentro do contêiner)" value={database.url} />
+                              {database.externalUrl ? (
+                                <Field label="DATABASE_URL (acesso local ao servidor)" value={database.externalUrl} />
+                              ) : null}
               </div>
               <div className="panel-actions">
                 <Button size="small" leadingVisual={KeyIcon} onClick={resetPassword} disabled={busy}>
@@ -413,6 +416,13 @@ export default function DatabasePage({project, loading, onChanged}) {
           <li>
             O host visto de dentro do contêiner do projeto é <code>db</code> e a porta <code>5432</code>.
           </li>
+          {database?.externalUrl ? (
+            <li>
+              De fora do contêiner (no próprio servidor) use a URL acima, trocando usuário e senha.
+              O Postgres só escuta em <code>127.0.0.1</code>, então para acesso remoto use um túnel
+              (SSH ou <code>cloudflared access tcp</code>) — o domínio público do Hostfy serve apenas HTTP.
+            </li>
+          ) : null}
         </ul>
         <Text className="muted small">
           Precisa de outro ajuste? <Link to="/projects">Volte aos projetos</Link>.

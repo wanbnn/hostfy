@@ -146,6 +146,12 @@ criado** — o Hostfy apenas executa `CREATE DATABASE` e `CREATE ROLE` no Postgr
 - **Acesso de dentro do contêiner do projeto:** host `db`, porta `5432`. O runner conecta os
   contêineres do projeto à rede `hostfy_databases`, onde fica o Postgres — assim o projeto alcança o
   banco sem enxergar o painel nem o runner.
+- **Acesso de fora do contêiner (local):** o serviço `db` publica a porta `DB_HOST_PORT`
+  (padrão: `55432`) **presa ao `127.0.0.1`** — ou seja, apenas da própria máquina do servidor. O
+  painel mostra essa URL em `/database/:id` ("acesso local ao servidor"). O Postgres não é exposto
+  na internet: o domínio público `hostfy.hephestos.com.br` (Cloudflare Tunnel) serve apenas HTTP
+  (painel e projetos). Para acessar o banco a partir de outro lugar, use um túnel, por exemplo
+  `ssh -L 55432:127.0.0.1:55432 usuario@servidor` ou `cloudflared access tcp --hostname ...`.
 - **Console SQL** na página `/database/:id`: uma instrução por vez, até 500 linhas de resultado,
   timeout de 15 s e bloqueio de `DROP/CREATE/ALTER DATABASE`, `CREATE/ALTER/DROP ROLE` e
   `pg_terminate_backend`.
@@ -270,6 +276,7 @@ O backend (`npm start`) serve os arquivos já compilados de `public/`.
 | `PROJECT_DB_HOST` | db | Host do Postgres dos projetos (visto da rede do compose) |
 | `PROJECT_DB_PORT` | 5432 | Porta do Postgres dos projetos |
 | `PROJECT_DB_ALERT_MB` | 200 | Tamanho (MB) que dispara o aviso de banco grande (não bloqueia) |
+| `DB_HOST_PORT` | 55432 | Porta do Postgres publicada no host, presa ao `127.0.0.1` (acesso local/túnel) |
 | `MAX_EDIT_BYTES` | 2 | Tamanho máximo (MB) de um arquivo editado no painel |
 | `DATABASES_NETWORK` | hostfy_databases | Rede Docker onde o Postgres é publicado para os projetos |
 | `ADMIN_EMAILS` | (vazio) | E-mails (separados por vírgula) com acesso à página `/system` |

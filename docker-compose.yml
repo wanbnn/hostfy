@@ -21,6 +21,8 @@ services:
       PROJECT_DB_HOST: ${PROJECT_DB_HOST:-db}
       PROJECT_DB_PORT: ${PROJECT_DB_PORT:-5432}
       PROJECT_DB_ALERT_MB: ${PROJECT_DB_ALERT_MB:-200}
+      # Porta publicada do Postgres no host (acesso local / túnel).
+      DB_HOST_PORT: ${DB_HOST_PORT:-55432}
     ports:
       - "${APP_PORT:-1591}:1591"
     volumes:
@@ -97,6 +99,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-now}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      # Acesso local (clientes SQL no próprio host). Fica preso ao 127.0.0.1 —
+      # não é exposto na internet. Para acesso remoto, use túnel SSH ou
+      # "cloudflared access tcp" (ver README).
+      - "127.0.0.1:${DB_HOST_PORT:-55432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hostly} -d ${POSTGRES_DB:-hostly}"]
       interval: 5s
