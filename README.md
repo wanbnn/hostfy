@@ -180,50 +180,95 @@ services:
 Em PHP/Node basta ler `process.env.DATABASE_URL` (ou `$_ENV['DATABASE_URL']`): o Hostfy já passa a
 variável para o processo.
 
-### Acesso ao Postgres pelo domínio
+### Acesso ao Postgres pelo domínio (HAProxy em modo TCP)
 
-Por padrão o Postgres fica inacessível pela internet: o `cloudflared` encaminha apenas **HTTP** para
-o painel e para os projetos, e o banco escuta em `127.0.0.1` no host. Se você quiser que um cliente
-SQL externo (DBeaver, pgAdmin, TablePlus) conecte usando o **domínio** em vez do `127.0.0.1`, faça
-o seguinte.
+Por padrão o Postgres fica inacessível pela internet: o `cloudflared` encaminha apenas
+**HTTP** para o painel e para os projetos, e o banco escuta em `127.0.0.1` no host.
 
-**1. Publique a porta do Postgres para o `cloudflared`.** No `config.yml` do tunnel, acrescente uma
-rota `tcp://` antes do `http_status:404`:
+Para expor o banco como um PostgreSQL de verdade, com a URL
+`postgresql://USER:SENHA@db.seudominio.com:5432/BANCO`, o Hostfy usa um **HAProxy em modo
+TCP (Layer 4)** no host: ele escuta na porta `5432` e repassa os bytes para o container `db`.
+O TLS é negociado pelo próprio Postgres, então o tráfego chega cifrado no banco.
 
-```yaml
-ingress:
-  - hostname: "db.seudominio.com"
-    service: tcp://localhost:55432     # porta publicada pelo serviço "db" (DB_HOST_PORT)
-  - hostname: "*.sites.heudominio.com"
-    service: http://localhost:1593
-  - hostname: "painel.seudominio.com"
-    service: http://localhost:1591
-  - service: http_status:404
+```
+servidor:5432  --TCP-->  haproxy (:5432)  --TCP-->  container db (:5432)
 ```
 
-Crie também o registro DNS `db.seudominio.com` apontando para o mesmo túnel (CNAME
-`<id>.cfargotunnel.com`).
+#### 1. Instalar o HAProxy
 
-**2. Avise o Hostfy qual é o hostname público** no `.env`:
+```bash
+sudo ./scripts/setup-haproxy.sh
+```
+
+O script instala o pacote `haproxy`, copia `deploy/haproxy.cfg` para `/etc/haproxy/haproxy.cfg`
+e habilita o serviço. O backend aponta para `127.0.0.1:${DB_HOST_PORT}`, a porta que o compose
+já publica para o container `db`.
+
+#### 2. Ligar o TLS no Postgres
+
+```bash
+sudo ./scripts/setup-postgres-tls.sh db.seudominio.com
+```
+
+Isso gera `./certs/{ca.crt,ca.key,server.crt,server.key}`. Depois, no `.env`:
+
+```env
+POSTGRES_SSL=true
+```
+
+e recrie o banco:
+
+```bash
+docker compose up -d db
+```
+
+> `./certs/` está no `.gitignore`: as chaves privadas nunca são versionadas.
+
+#### 3. Apontar o domínio para o servidor
+
+Crie o registro DNS `db.seudominio.com` apontando para o **IP do servidor** (A e/ou AAAA).
+Não use o túnel HTTP do Cloudflare para isso: um hostname só roteia HTTP, e o Postgres fala TCP.
+
+#### 4. Informar o hostname ao Hostfy
 
 ```env
 PROJECT_DB_PUBLIC_HOST=db.seudominio.com
 PROJECT_DB_PUBLIC_PORT=5432
 ```
 
-**3. Reinicie o painel** (`docker compose up -d app`). A partir daí, a página `/database/:id` mostra
-a URL com o domínio, pronta para colar no cliente SQL:
+Recorde o painel (`docker compose up -d app`). A página `/database/:id` passa a exibir a URL
+pronta para colar no cliente SQL:
 
 ```
-postgres://hostfy_u12:senha@db.seudominio.com:5432/hostfy_meuapp_12
+postgresql://hostfy_u12:senha@db.seudominio.com:5432/hostfy_meuapp_12
 ```
 
-> O host `db` e a porta `5432` continuam sendo o endereço **dentro do contêiner do projeto** — não
-> muda nada para a aplicação. O domínio é só a forma de chegar ao banco a partir da sua máquina.
->
-> Clientes que não suportam TCP via Cloudflare exigem o `cloudflared` na máquina do cliente:
-> `cloudflared access tcp --hostname db.seudominio.com --url localhost:5432`, e então use
-> `localhost:5432` no cliente SQL.
+#### 5. Liberar a porta 5432 no firewall
+
+```bash
+sudo ufw allow 5432/tcp      # se usar ufw
+sudo nft add rule inet filter input tcp dport 5432 accept   # se usar nftables
+```
+
+E faça o forward no roteador, se o servidor estiver atrás de NAT:
+
+```
+porta externa 5432  ->  IP-DO-SERVIDOR:5432
+```
+
+#### Conectando
+
+No cliente SQL (DBeaver, pgAdmin, TablePlus) use **SSL** e a URL acima. Para validar o
+certificado da CA do servidor, baixe o `certs/ca.crt` e use `sslmode=verify-full`;
+com `sslmode=require` o certificado não é validado (ainda criptografado).
+
+> O host `db` e a porta `5432` continuam sendo o endereço **dentro do contêiner do projeto** —
+> não muda nada para a aplicação. O domínio é só a forma de chegar ao banco da sua máquina.
+
+> **Segurança:** o `pg_hba.conf` do Postgres aceita `scram-sha-256` de qualquer origem. Cada projeto
+> usa uma senha aleatória de 40 caracteres e um role sem superusuário, mas o acesso público
+> ainda é amplo. Restrinja por IP no `pg_hba.conf` ou use uma allowlist no HAProxy se a exposição
+> não for para a internet toda.
 
 ## Gerenciador de arquivos
 
@@ -328,7 +373,8 @@ O backend (`npm start`) serve os arquivos já compilados de `public/`.
 | `PROJECT_DB_HOST` | db | Host do Postgres dos projetos (visto da rede do compose) |
 | `PROJECT_DB_PORT` | 5432 | Porta do Postgres dos projetos |
 | `PROJECT_DB_ALERT_MB` | 200 | Tamanho (MB) que dispara o aviso de banco grande (não bloqueia) |
-| `DB_HOST_PORT` | 55432 | Porta do Postgres publicada no host, presa ao `127.0.0.1` (acesso local/túnel) |
+| `DB_HOST_PORT` | 55432 | Porta do Postgres publicada no host, presa ao `127.0.0.1` (usada pelo HAProxy) |
+| `POSTGRES_SSL` | false | Liga o TLS no Postgres (usa `./certs/`) |
 | `PROJECT_DB_PUBLIC_HOST` | (vazio) | Hostname público do Postgres (ex.: `db.seudominio.com`) exibido na URL externa do painel |
 | `PROJECT_DB_PUBLIC_PORT` | 5432 | Porta usada junto com `PROJECT_DB_PUBLIC_HOST` |
 | `MAX_EDIT_BYTES` | 2 | Tamanho máximo (MB) de um arquivo editado no painel |

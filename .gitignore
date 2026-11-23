@@ -35,3 +35,6 @@ Thumbs.db
 # Misc
 .cache/
 coverage/
+
+# Certificados TLS do Postgres (gerados localmente)
+certs/

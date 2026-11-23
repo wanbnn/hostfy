@@ -103,10 +103,23 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-now}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Certificados TLS do Postgres (scripts/setup-postgres-tls.sh).
+      # Usados apenas quando POSTGRES_SSL=true.
+      - ./certs:/certs:ro
+    command:
+      - postgres
+      - -c
+      - ssl=${POSTGRES_SSL:-false}
+      - -c
+      - ssl_cert_file=/certs/server.crt
+      - -c
+      - ssl_key_file=/certs/server.key
+      - -c
+      - ssl_min_protocol_version=TLSv1.2
     ports:
-      # Acesso local (clientes SQL no próprio host). Fica preso ao 127.0.0.1 —
-      # não é exposto na internet. Para acesso remoto, use túnel SSH ou
-      # "cloudflared access tcp" (ver README).
+      # Acesso local (clientes SQL no próprio host) e para o HAProxy.
+      # Fica preso ao 127.0.0.1 — a exposição pública é feita pelo
+      # HAProxy em modo TCP (veja scripts/setup-haproxy.sh).
       - "127.0.0.1:${DB_HOST_PORT:-55432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hostly} -d ${POSTGRES_DB:-hostly}"]

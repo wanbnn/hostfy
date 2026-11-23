@@ -92,10 +92,10 @@ function connectionUrl({ db_name, role_name, password }) {
 // - senão, usa a porta publicada no host (127.0.0.1).
 function externalUrl({ db_name, role_name, password }) {
   if (DB_PUBLIC_HOST) {
-    return `postgres://${role_name}:${password}@${DB_PUBLIC_HOST}:${DB_PUBLIC_PORT}/${db_name}`;
+    return `postgresql://${role_name}:${password}@${DB_PUBLIC_HOST}:${DB_PUBLIC_PORT}/${db_name}`;
   }
   if (!DB_HOST_PORT) return null;
-  return `postgres://${role_name}:${password}@127.0.0.1:${DB_HOST_PORT}/${db_name}`;
+  return `postgresql://${role_name}:${password}@127.0.0.1:${DB_HOST_PORT}/${db_name}`;
 }
 
 // ---------------------------------------------------------------------------
