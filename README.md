@@ -227,7 +227,15 @@ docker compose up -d db
 #### 3. Apontar o domínio para o servidor
 
 Crie o registro DNS `db.seudominio.com` apontando para o **IP do servidor** (A e/ou AAAA).
-Não use o túnel HTTP do Cloudflare para isso: um hostname só roteia HTTP, e o Postgres fala TCP.
+
+> **Importante:** o registro precisa ficar **DNS only** (nuvem cinza no Cloudflare). Com o
+> proxy ligado (nuvem laranja) o hostname responde com os IPs da Cloudflare, que só roteiam
+> HTTP/HTTPS — o Postgres fala TCP e a conexão nunca chega ao servidor. Se o domínio tiver um
+> `*` (wildcard) proxied, crie um registro explícito para `db` com o proxy desligado: o
+> registro específico tem precedência sobre o wildcard.
+
+Se o servidor só tiver IPv6 público (IPv4 atrás de NAT sem forward), use um registro **AAAA**:
+o IPv6 nativo é alcançável de fora sem port forward.
 
 #### 4. Informar o hostname ao Hostfy
 
@@ -256,6 +264,22 @@ E faça o forward no roteador, se o servidor estiver atrás de NAT:
 porta externa 5432  ->  IP-DO-SERVIDOR:5432
 ```
 
+#### 6. Conferir se está no ar
+
+```bash
+# o HAProxy precisa estar escutando em IPv4 e IPv6
+ss -lntp | grep 5432
+
+# conexão real pelo domínio, com TLS
+psql "postgresql://USUARIO:SENHA@db.seudominio.com:5432/BANCO?sslmode=require" -c "select 1"
+```
+
+Se a conexão falhar, o log do HAProxy mostra se o pacote chegou:
+
+```bash
+sudo journalctl -u haproxy -f
+```
+
 #### Conectando
 
 No cliente SQL (DBeaver, pgAdmin, TablePlus) use **SSL** e a URL acima. Para validar o
@@ -269,6 +293,11 @@ com `sslmode=require` o certificado não é validado (ainda criptografado).
 > usa uma senha aleatória de 40 caracteres e um role sem superusuário, mas o acesso público
 > ainda é amplo. Restrinja por IP no `pg_hba.conf` ou use uma allowlist no HAProxy se a exposição
 > não for para a internet toda.
+
+Cada banco de projeto é criado com `REVOKE ALL ON DATABASE <banco> FROM PUBLIC` e
+`GRANT CONNECT` apenas para o role do próprio projeto. O role também não consegue conectar no
+banco interno do Hostfy (`POSTGRES_DB`), então um projeto não enxerga os dados de outro nem os
+da aplicação.
 
 ## Gerenciador de arquivos
 
