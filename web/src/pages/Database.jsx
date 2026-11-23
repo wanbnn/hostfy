@@ -264,14 +264,19 @@ export default function DatabasePage({project, loading, onChanged}) {
                 <Label variant="success">pronto</Label>
               </div>
               <div className="conn-grid">
-                              <Field label="Host" value={database.host} />
-                              <Field label="Porta" value={String(database.port)} />
+                              <Field label="Host (dentro do contêiner)" value={database.host} />
+                              <Field label="Porta (dentro do contêiner)" value={String(database.port)} />
                               <Field label="Banco" value={database.name} />
                               <Field label="Usuário" value={database.user} />
                               <Field label="Senha" value={database.password} secret />
                               <Field label="DATABASE_URL (dentro do contêiner)" value={database.url} />
                               {database.externalUrl ? (
-                                <Field label="DATABASE_URL (acesso local ao servidor)" value={database.externalUrl} />
+                                <Field
+                                  label={database.publicHost
+                                    ? 'DATABASE_URL (acesso público pelo domínio)'
+                                    : 'DATABASE_URL (acesso local ao servidor)'}
+                                  value={database.externalUrl}
+                                />
                               ) : null}
               </div>
               <div className="panel-actions">
@@ -416,7 +421,13 @@ export default function DatabasePage({project, loading, onChanged}) {
           <li>
             O host visto de dentro do contêiner do projeto é <code>db</code> e a porta <code>5432</code>.
           </li>
-          {database?.externalUrl ? (
+          {database?.publicHost ? (
+            <li>
+              A URL acima usa o domínio <code>{database.publicHost}</code> e é a que você deve passar
+              para um cliente SQL externo (DBeaver, pgAdmin, …). Ela só funciona se o Cloudflare Tunnel
+              tiver uma rota <code>tcp://</code> para esse hostname — veja o README.
+            </li>
+          ) : database?.externalUrl ? (
             <li>
               De fora do contêiner (no próprio servidor) use a URL acima, trocando usuário e senha.
               O Postgres só escuta em <code>127.0.0.1</code>, então para acesso remoto use um túnel

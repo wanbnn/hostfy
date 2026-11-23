@@ -148,10 +148,14 @@ criado** — o Hostfy apenas executa `CREATE DATABASE` e `CREATE ROLE` no Postgr
   banco sem enxergar o painel nem o runner.
 - **Acesso de fora do contêiner (local):** o serviço `db` publica a porta `DB_HOST_PORT`
   (padrão: `55432`) **presa ao `127.0.0.1`** — ou seja, apenas da própria máquina do servidor. O
-  painel mostra essa URL em `/database/:id` ("acesso local ao servidor"). O Postgres não é exposto
-  na internet: o domínio público `hostfy.hephestos.com.br` (Cloudflare Tunnel) serve apenas HTTP
-  (painel e projetos). Para acessar o banco a partir de outro lugar, use um túnel, por exemplo
+  painel mostra essa URL em `/database/:id` ("acesso local ao servidor"). Para acessar o banco a
+  partir de outro lugar, use um túnel, por exemplo
   `ssh -L 55432:127.0.0.1:55432 usuario@servidor` ou `cloudflared access tcp --hostname ...`.
+- **Acesso de fora do contêiner (domínio público):** defina `PROJECT_DB_PUBLIC_HOST` (ex.:
+  `db.seudominio.com`) e o painel passa a exibir a URL com esse domínio, em vez do `127.0.0.1`:
+  `postgres://hostfy_u12:senha@db.seudominio.com:5432/hostfy_meuapp_12`. Para isso funcionar,
+  o Cloudflare Tunnel precisa de uma rota `tcp://` para esse hostname — veja a seção
+  [Acesso ao Postgres pelo domínio](#acesso-ao-postgres-pelo-domínio).
 - **Console SQL** na página `/database/:id`: uma instrução por vez, até 500 linhas de resultado,
   timeout de 15 s e bloqueio de `DROP/CREATE/ALTER DATABASE`, `CREATE/ALTER/DROP ROLE` e
   `pg_terminate_backend`.
@@ -175,6 +179,51 @@ services:
 
 Em PHP/Node basta ler `process.env.DATABASE_URL` (ou `$_ENV['DATABASE_URL']`): o Hostfy já passa a
 variável para o processo.
+
+### Acesso ao Postgres pelo domínio
+
+Por padrão o Postgres fica inacessível pela internet: o `cloudflared` encaminha apenas **HTTP** para
+o painel e para os projetos, e o banco escuta em `127.0.0.1` no host. Se você quiser que um cliente
+SQL externo (DBeaver, pgAdmin, TablePlus) conecte usando o **domínio** em vez do `127.0.0.1`, faça
+o seguinte.
+
+**1. Publique a porta do Postgres para o `cloudflared`.** No `config.yml` do tunnel, acrescente uma
+rota `tcp://` antes do `http_status:404`:
+
+```yaml
+ingress:
+  - hostname: "db.seudominio.com"
+    service: tcp://localhost:55432     # porta publicada pelo serviço "db" (DB_HOST_PORT)
+  - hostname: "*.sites.heudominio.com"
+    service: http://localhost:1593
+  - hostname: "painel.seudominio.com"
+    service: http://localhost:1591
+  - service: http_status:404
+```
+
+Crie também o registro DNS `db.seudominio.com` apontando para o mesmo túnel (CNAME
+`<id>.cfargotunnel.com`).
+
+**2. Avise o Hostfy qual é o hostname público** no `.env`:
+
+```env
+PROJECT_DB_PUBLIC_HOST=db.seudominio.com
+PROJECT_DB_PUBLIC_PORT=5432
+```
+
+**3. Reinicie o painel** (`docker compose up -d app`). A partir daí, a página `/database/:id` mostra
+a URL com o domínio, pronta para colar no cliente SQL:
+
+```
+postgres://hostfy_u12:senha@db.seudominio.com:5432/hostfy_meuapp_12
+```
+
+> O host `db` e a porta `5432` continuam sendo o endereço **dentro do contêiner do projeto** — não
+> muda nada para a aplicação. O domínio é só a forma de chegar ao banco a partir da sua máquina.
+>
+> Clientes que não suportam TCP via Cloudflare exigem o `cloudflared` na máquina do cliente:
+> `cloudflared access tcp --hostname db.seudominio.com --url localhost:5432`, e então use
+> `localhost:5432` no cliente SQL.
 
 ## Gerenciador de arquivos
 
@@ -240,6 +289,9 @@ Com o wildcard configurado, cada projeto PHP/Node de `slug` `minha-api` responde
 `https://minha-api.sites.seudominio.com`. O runner lê o `Host` e encaminha para o
 processo correto.
 
+Para expor também o **Postgres** pelo domínio (rota `tcp://`), veja
+[Acesso ao Postgres pelo domínio](#acesso-ao-postgres-pelo-domínio).
+
 ## Desenvolvimento do frontend
 
 O frontend fica em `web/` e usa React + Primer (`@primer/react`), com Vite.
@@ -277,6 +329,8 @@ O backend (`npm start`) serve os arquivos já compilados de `public/`.
 | `PROJECT_DB_PORT` | 5432 | Porta do Postgres dos projetos |
 | `PROJECT_DB_ALERT_MB` | 200 | Tamanho (MB) que dispara o aviso de banco grande (não bloqueia) |
 | `DB_HOST_PORT` | 55432 | Porta do Postgres publicada no host, presa ao `127.0.0.1` (acesso local/túnel) |
+| `PROJECT_DB_PUBLIC_HOST` | (vazio) | Hostname público do Postgres (ex.: `db.seudominio.com`) exibido na URL externa do painel |
+| `PROJECT_DB_PUBLIC_PORT` | 5432 | Porta usada junto com `PROJECT_DB_PUBLIC_HOST` |
 | `MAX_EDIT_BYTES` | 2 | Tamanho máximo (MB) de um arquivo editado no painel |
 | `DATABASES_NETWORK` | hostfy_databases | Rede Docker onde o Postgres é publicado para os projetos |
 | `ADMIN_EMAILS` | (vazio) | E-mails (separados por vírgula) com acesso à página `/system` |

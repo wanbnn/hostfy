@@ -25,6 +25,12 @@ const DB_PORT = Number(process.env.PROJECT_DB_PORT || 5432);
 // Porta do Postgres publicada no host (127.0.0.1). Quando existe, o painel
 // também mostra a URL para conectar de fora do contêiner (cliente SQL local).
 const DB_HOST_PORT = Number(process.env.DB_HOST_PORT || 0);
+// Host público do Postgres (ex.: "db.seudominio.com"), resolvido pelo
+// Cloudflare Tunnel. Quando definido, a URL externa usa o domínio em vez
+// do 127.0.0.1. Vazio = mostra apenas o endereço local.
+const DB_PUBLIC_HOST = String(process.env.PROJECT_DB_PUBLIC_HOST || '').trim().toLowerCase();
+// Porta usada pelo domínio público (normalmente a mesma do Postgres).
+const DB_PUBLIC_PORT = Number(process.env.PROJECT_DB_PUBLIC_PORT || 5432);
 // Tamanho (em MB) a partir do qual o Hostfy avisa o usuário. É apenas um
 // alerta: nada é bloqueado, o usuário decide o que fazer com os dados.
 const ALERT_MB = Number(process.env.PROJECT_DB_ALERT_MB || 200);
@@ -81,8 +87,13 @@ function connectionUrl({ db_name, role_name, password }) {
   return `postgres://${role_name}:${password}@${DB_HOST}:${DB_PORT}/${db_name}`;
 }
 
-// Mesma coisa, mas apontando para a porta publicada no host (acesso local).
+// Mesma coisa, mas para uso de fora do contêiner do projeto:
+// - com PROJECT_DB_PUBLIC_HOST definido, usa o domínio público (Tunnel);
+// - senão, usa a porta publicada no host (127.0.0.1).
 function externalUrl({ db_name, role_name, password }) {
+  if (DB_PUBLIC_HOST) {
+    return `postgres://${role_name}:${password}@${DB_PUBLIC_HOST}:${DB_PUBLIC_PORT}/${db_name}`;
+  }
   if (!DB_HOST_PORT) return null;
   return `postgres://${role_name}:${password}@127.0.0.1:${DB_HOST_PORT}/${db_name}`;
 }
@@ -269,6 +280,8 @@ function describe(record, password) {
     url: plain ? connectionUrl({ db_name: record.db_name, role_name: record.role_name, password: plain }) : null,
     externalUrl: plain ? externalUrl({ db_name: record.db_name, role_name: record.role_name, password: plain }) : null,
     hostPort: DB_HOST_PORT || null,
+    publicHost: DB_PUBLIC_HOST || null,
+    publicPort: DB_PUBLIC_HOST ? DB_PUBLIC_PORT : null,
     alertBytes: ALERT_BYTES,
   };
 }
@@ -310,5 +323,7 @@ module.exports = {
   describe,
   connectionUrl,
   externalUrl,
+  DB_PUBLIC_HOST,
+  DB_PUBLIC_PORT,
   withClient,
 };

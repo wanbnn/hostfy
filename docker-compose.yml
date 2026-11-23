@@ -23,6 +23,10 @@ services:
       PROJECT_DB_ALERT_MB: ${PROJECT_DB_ALERT_MB:-200}
       # Porta publicada do Postgres no host (acesso local / túnel).
       DB_HOST_PORT: ${DB_HOST_PORT:-55432}
+      # Host público do Postgres (ex.: db.seudominio.com) servido pelo
+      # Cloudflare Tunnel. Vazio = o painel mostra o endereço local (127.0.0.1).
+      PROJECT_DB_PUBLIC_HOST: ${PROJECT_DB_PUBLIC_HOST:-}
+      PROJECT_DB_PUBLIC_PORT: ${PROJECT_DB_PUBLIC_PORT:-5432}
     ports:
       - "${APP_PORT:-1591}:1591"
     volumes:
