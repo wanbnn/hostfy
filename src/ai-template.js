@@ -41,6 +41,7 @@ const PROTECTED = new Set([
   'src/components/hostfy/index.tsx',
   'src/components/hostfy/styles.css',
 ]);
+const protectedNames = new Set([...PROTECTED].map(file => file.toLowerCase()));
 
 // Normaliza um caminho relativo vindo do modelo, recusando escapes.
 function safeRelative(input) {
@@ -54,6 +55,34 @@ function safeRelative(input) {
     parts.push(segment);
   }
   return parts.join('/');
+}
+
+function editablePath(input) {
+  const rel = safeRelative(input);
+  const name = rel.toLowerCase();
+  if (!/^(src|public|assets)\//.test(rel) || protectedNames.has(name) ||
+      name.startsWith('src/components/ui/') || name.startsWith('src/components/hostfy/') ||
+      rel.split('/').some(part => part.startsWith('.') || /[. ]$/.test(part) || /[<>"|?*\x00-\x1f]/.test(part) || part.toLowerCase() === 'node_modules')) {
+    return null;
+  }
+  return rel;
+}
+
+function checkSource(rel, content) {
+  if (/\.css$/i.test(rel) && /@config\b/i.test(content)) {
+    throw new Error(rel + ' usa uma configuração Tailwind externa. Use a configuração do projeto.');
+  }
+}
+
+async function copyTemplate(destDir) {
+  await fs.cp(TEMPLATE_DIR, destDir, {
+    recursive: true,
+    filter: source => !['node_modules', 'dist'].includes(path.relative(TEMPLATE_DIR, source).split(path.sep)[0]),
+  });
+}
+
+function readEntryFile() {
+  return fs.readFile(path.join(TEMPLATE_DIR, 'src', 'App.tsx'), 'utf8');
 }
 
 async function listFilesRecursive(dir, base = dir) {
@@ -83,14 +112,11 @@ async function readIfExists(target) {
 async function applyOperation(destDir, operation) {
   let rel;
   try {
-    rel = safeRelative(operation?.path);
+    rel = editablePath(operation?.path);
   } catch (e) {
     return { path: operation?.path, op: operation?.op, ok: false, error: e.message };
   }
-  if (!rel) return { path: operation?.path, op: operation?.op, ok: false, error: 'Caminho vazio.' };
-  if (PROTECTED.has(rel) || rel.toLowerCase().startsWith('src/components/hostfy/')) {
-    return { path: rel, op: operation?.op, ok: false, error: 'Arquivo protegido.' };
-  }
+  if (!rel) return { path: operation?.path, op: operation?.op, ok: false, error: 'Arquivo fora da área editável.' };
 
   const target = path.join(destDir, rel);
   const op = String(operation?.op || '').toLowerCase();
@@ -101,6 +127,7 @@ async function applyOperation(destDir, operation) {
     let patched;
     try {
       patched = applyPatch(current, operation.patch);
+      checkSource(rel, patched);
     } catch (e) {
       return { path: rel, op, ok: false, error: e.message };
     }
@@ -109,8 +136,12 @@ async function applyOperation(destDir, operation) {
   }
 
   // create / update
+  const content = String(operation.content ?? '');
+  try { checkSource(rel, content); } catch (error) {
+    return { path: rel, op, ok: false, error: error.message };
+  }
   await fs.mkdir(path.dirname(target), { recursive: true });
-  await fs.writeFile(target, String(operation.content ?? ''), 'utf8');
+  await fs.writeFile(target, content, 'utf8');
   return { path: rel, op: op || 'update', ok: true };
 }
 
@@ -120,7 +151,7 @@ async function materialize(destDir, operations = []) {
   await fs.mkdir(destDir, { recursive: true });
 
   // 1. Copia o boilerplate.
-  await fs.cp(TEMPLATE_DIR, destDir, { recursive: true });
+  await copyTemplate(destDir);
 
   // 2. Aplica as operações geradas (exceto as protegidas/inválidas).
   const results = [];
@@ -134,4 +165,4 @@ async function materialize(destDir, operations = []) {
   return { files: all, applied, failed };
 }
 
-module.exports = { TEMPLATE_DIR, PROTECTED, materialize, applyOperation, safeRelative };
+module.exports = { TEMPLATE_DIR, copyTemplate, readEntryFile, editablePath, checkSource, materialize };

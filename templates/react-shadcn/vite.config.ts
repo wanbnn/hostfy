@@ -14,7 +14,6 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
-    allowedHosts: true,
-    hmr: { clientPort: 443, protocol: 'wss', path: '/__ai-preview-hmr' },
+    fs: { allow: ['.'] },
   },
 })

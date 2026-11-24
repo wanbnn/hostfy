@@ -10,6 +10,7 @@ export default defineConfig({
     // Encaminha as chamadas de API para o backend durante o `npm run dev:web`.
     proxy: {
       '/api': {target: process.env.API_TARGET || 'http://localhost:1591', changeOrigin: true},
+      '/__ai-preview': {target: process.env.API_TARGET || 'http://localhost:1591', changeOrigin: true},
     },
   },
   build: {

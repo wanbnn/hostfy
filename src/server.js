@@ -18,12 +18,11 @@ const files = require('./files');
 const ai = require('./ai');
 const aiTemplate = require('./ai-template');
 const aiPreview = require('./ai-preview-client');
+const aiBuilder = require('./ai-builder');
 const { encrypt, decrypt } = require('./secrets');
 
 const app = express();
 const PORT = Number(process.env.PORT || 1591);
-const AI_PREVIEW_MOUNT = '/__ai-preview';
-const AI_PREVIEW_UPSTREAM = `http://${process.env.AI_PREVIEW_HOST || '127.0.0.1'}:${Number(process.env.AI_PREVIEW_PORT || 1595)}`;
 const STORAGE = process.env.STORAGE_DIR || path.join(__dirname, '..', 'data', 'projects');
 const MAX_MB = Number(process.env.MAX_UPLOAD_MB || 100);
 const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || '')
@@ -40,56 +39,16 @@ app.use(helmet({ contentSecurityPolicy: { directives: {
   defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'"],
   imgSrc: ["'self'", 'data:'], connectSrc: ["'self'"], objectSrc: ["'none'"], frameAncestors: ["'none'"]
 }}}));
-// O corpo do painel é pequeno; só a edição de arquivos aceita payloads maiores.
 const jsonSmall = express.json({ limit: '128kb' });
 const jsonLarge = express.json({ limit: '4mb' });
-app.use((req, res, next) => (req.path.endsWith('/files/content') || req.path === '/ai/generate' ? jsonLarge : jsonSmall)(req, res, next));
+const largeJsonPaths = new Set(['/api/ai/generate', '/api/ai/preview', '/api/ai/deploy']);
+app.use((req, res, next) => (
+  req.path.endsWith('/files/content') || largeJsonPaths.has(req.path) ? jsonLarge : jsonSmall
+)(req, res, next));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/api', rateLimit({ windowMs: 15 * 60 * 1000, limit: 600, standardHeaders: true, legacyHeaders: false }));
-// O proxy same-origin mantÃ©m o preview e o HMR funcionando atrÃ¡s de HTTPS sem
-// expor a porta efÃªmera de cada servidor Vite.
-app.use(AI_PREVIEW_MOUNT, (req, res) => {
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  // Dentro do middleware montado, req.url perde o prefixo do mount. O serviço
-  // de preview espera o caminho completo (/__ai-preview/<id>/...), então
-  // reconstruímos a URL original a partir de req.originalUrl.
-  const original = req.originalUrl || `${AI_PREVIEW_MOUNT}${req.url}`;
-  const target = new URL(original, AI_PREVIEW_UPSTREAM);
-  const headers = { ...req.headers, host: target.host };
-  headers['x-hostfy-session'] = target.pathname.split('/')[2] || '';
-  headers['x-forwarded-proto'] = req.headers['x-forwarded-proto'] || req.protocol;
-  if (req.headers.host) headers['x-forwarded-host'] = req.headers.host;
-  headers['x-forwarded-proto'] = req.headers['x-forwarded-proto'] || req.protocol;
-  delete headers.connection;
-  if (req.headers.origin === `http://${req.headers.host}` || req.headers.origin === `https://${req.headers.host}`) delete headers.origin;
-  const upstream = require('http').request({ hostname: target.hostname, port: target.port, path: target.pathname + target.search, method: req.method, headers }, upstreamRes => {
-    res.writeHead(upstreamRes.statusCode || 502, upstreamRes.headers);
-    upstreamRes.pipe(res);
-  });
-  upstream.on('error', () => { if (!res.headersSent) res.status(502); res.end('Preview indisponÃ­vel.'); });
-  req.pipe(upstream);
-});
-const appServer = require('http').createServer(app);
-appServer.on('upgrade', (req, socket, head) => {
-  const isHmr = req.url.startsWith('/__ai-preview-hmr');
-  if (!isHmr && !req.url.startsWith(`${AI_PREVIEW_MOUNT}/`)) return socket.destroy();
-    // Mantém o caminho completo (/__ai-preview/<id>/...) esperado pelo serviço.
-    const targetPath = req.url;
-  const headers = { ...req.headers, host: `127.0.0.1:${Number(process.env.AI_PREVIEW_PORT || 1595)}` };
-    if (!isHmr) headers['x-hostfy-session'] = targetPath.split('/')[2] || '';
-  const upstream = require('net').connect(Number(process.env.AI_PREVIEW_PORT || 1595), process.env.AI_PREVIEW_HOST || '127.0.0.1', () => {
-    let raw = `${req.method} ${targetPath} HTTP/1.1\r\n`;
-    for (const [name, value] of Object.entries(headers)) raw += `${name}: ${value}\r\n`;
-    raw += '\r\n';
-    upstream.write(raw);
-    if (head?.length) upstream.write(head);
-    upstream.pipe(socket);
-    socket.pipe(upstream);
-  });
-  upstream.on('error', () => socket.destroy());
-  socket.on('error', () => upstream.destroy());
-});
+app.use('/__ai-preview', aiPreview.serve);
 
 const emailOk = s => typeof s === 'string' && s.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 // O sufixo pode vir como "@dominio.com" ou "dominio.com".
@@ -418,74 +377,105 @@ app.post('/api/projects', requireAuth, upload.single('project'), async (req,res)
   } finally { if (temp) await fs.rm(temp, { force: true }).catch(()=>{}); }
 });
 
-  // ---------------------------------------------------------------------------
-  // AI Builder — geração de projeto React (shadcn + lucide + recharts)
-  // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// AI Builder
+// ---------------------------------------------------------------------------
 
-  // Gera as operações (create/update/patch) a partir de uma descrição em
-    // linguagem natural. O boilerplate (package.json, configs, componentes shadcn)
-    // NÃO é gerado pelo modelo: ele é mesclado no deploy. O modelo recebe o
-    // conteúdo atual dos arquivos para poder editar via patch (diff).
-  app.post('/api/ai/generate', requireAuth, rateLimit({ windowMs: 60 * 1000, limit: 20 }), async (req, res) => {
+app.post('/api/ai/generate', requireAuth, rateLimit({ windowMs: 60 * 1000, limit: 20 }), async (req, res) => {
+  if (!ai.enabled()) return res.status(503).json({ error: 'Geração por IA não está configurada neste servidor.' });
+  const description = String(req.body?.description || '').trim();
+  if (!description) return res.status(400).json({ error: 'Descreva o projeto que deseja criar.' });
+  if (description.length > 4000) return res.status(400).json({ error: 'Descrição muito longa (máx. 4.000 caracteres).' });
+
+  const draftId = req.body?.draftId;
+  if (draftId !== undefined && !aiPreview.validDraftId(draftId)) {
+    return res.status(400).json({ error: 'Identificador de rascunho inválido.' });
+  }
+  const existingFiles = Array.isArray(req.body?.existingFiles)
+    ? req.body.existingFiles.slice(0, 200).map(file => typeof file === 'string'
+        ? { path: file, content: '' }
+        : { path: String(file?.path || ''), content: String(file?.content ?? '') })
+      .filter(file => file.path)
+    : [];
+
+  const wantsStream = req.get('accept')?.includes('text/event-stream') || req.body?.stream === true;
+  const controller = new AbortController();
+  res.on('close', () => { if (!res.writableEnded) controller.abort(); });
+  if (!wantsStream) {
     try {
-      if (!ai.enabled()) return res.status(503).json({ error: 'Geração por IA não está configurada neste servidor.' });
-      const description = String(req.body?.description || '').trim();
-      if (!description) return res.status(400).json({ error: 'Descreva o projeto que deseja criar.' });
-      if (description.length > 4000) return res.status(400).json({ error: 'Descrição muito longa (máx. 4.000 caracteres).' });
-
-        // Aceita tanto strings (só caminhos) quanto objetos {path, content}.
-      const existingFiles = Array.isArray(req.body?.existingFiles)
-          ? req.body.existingFiles
-              .slice(0, 200)
-              .map(f => (typeof f === 'string' ? { path: f, content: '' } : { path: String(f?.path || ''), content: String(f?.content ?? '') }))
-              .filter(f => f.path)
-        : [];
-
-        const wantsStream = req.get('accept')?.includes('text/event-stream') || req.body?.stream === true;
-        if (wantsStream) {
-          res.status(200).set({
-            'Content-Type': 'text/event-stream; charset=utf-8',
-            'Cache-Control': 'no-cache, no-transform',
-            Connection: 'keep-alive',
-            'X-Accel-Buffering': 'no',
-          });
-          res.flushHeaders?.();
-          const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-          try {
-            let autoRepairAttempted = false;
-            const operations = await ai.generate({
-              description,
-              existingFiles,
-              onContent: token => send('token', { token }),
-              onRecovery: error => {
-                autoRepairAttempted = true;
-                send('repair', { error: error.message });
-              },
-            });
-            send('complete', { operations, model: ai.DEFAULT_MODEL, autoRepairAttempted });
-            return res.end();
-          } catch (error) {
-            send('error', { error: error.message || 'Falha ao gerar o projeto.' });
-            return res.end();
-          }
-        }
-        const operations = await ai.generate({ description, existingFiles });
-        res.json({ operations, model: ai.DEFAULT_MODEL });
-    } catch (e) {
-      console.error(e);
-      res.status(502).json({ error: e.message || 'Falha ao gerar o projeto.' });
+      const operations = await ai.generate({ description, existingFiles, signal: controller.signal });
+      return res.json({ operations, model: ai.DEFAULT_MODEL });
+    } catch (error) {
+      if (!controller.signal.aborted) res.status(502).json({ error: error.message });
+      return;
     }
-  });
+  }
 
-  app.post('/api/ai/preview', requireAuth, async (req, res) => {
-    try {
-      const files = Array.isArray(req.body?.files) ? req.body.files.slice(0, 200) : [];
-      const result = await aiPreview.update(String(req.user.sub), files);
-      res.json(result);
-    } catch (e) {
-      res.status(502).json({ error: e.message || 'Falha ao atualizar o preview.' });
-    }
+  res.status(200).set({
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-store, no-transform',
+    'X-Accel-Buffering': 'no',
   });
+  res.flushHeaders();
+  const send = (event, data) => {
+    if (!controller.signal.aborted) {
+      res.write('event: ' + event + '\ndata: ' + JSON.stringify(data) + '\n\n');
+    }
+  };
+  send('start', {});
+  const heartbeat = setInterval(() => {
+    if (!controller.signal.aborted) res.write(': keepalive\n\n');
+  }, 12000);
+  try {
+    if (draftId) {
+      const result = await aiBuilder.generate({
+        userId: req.user.sub,
+        draftId,
+        description,
+        existingFiles,
+        signal: controller.signal,
+        send,
+      });
+      send('complete', result);
+    } else {
+      let autoRepairAttempted = false;
+      const operations = await ai.generate({
+        description,
+        existingFiles,
+        signal: controller.signal,
+        onContent: token => send('token', { token }),
+        onRecovery: error => {
+          autoRepairAttempted = true;
+          send('repair', { error: error.message });
+        },
+      });
+      send('complete', { operations, model: ai.DEFAULT_MODEL, autoRepairAttempted });
+    }
+  } catch (error) {
+    send('error', { error: error.message || 'Falha ao gerar o projeto.' });
+  } finally {
+    clearInterval(heartbeat);
+    if (!controller.signal.aborted) res.end();
+  }
+});
+
+app.post('/api/ai/preview', requireAuth, async (req, res) => {
+  const draftId = req.body?.draftId;
+  if (draftId !== undefined && !aiPreview.validDraftId(draftId)) {
+    return res.status(400).json({ error: 'Identificador de rascunho inválido.' });
+  }
+  const files = Array.isArray(req.body?.files) ? req.body.files.slice(0, 200) : [];
+  const controller = new AbortController();
+  res.on('close', () => { if (!res.writableEnded) controller.abort(); });
+  try {
+    res.json(await aiPreview.update(req.user.sub, files, { draftId, signal: controller.signal }));
+  } catch (error) {
+    if (!controller.signal.aborted) res.status(error.status || 502).json({
+      code: error.code,
+      error: error.message || 'Falha ao atualizar o preview.',
+    });
+  }
+});
 
   // Publica um projeto gerado pela IA: mescla o template com os arquivos da IA,
   // grava no storage e sobe como projeto Node (build + start via runner).
@@ -1234,6 +1224,7 @@ app.use((req, res, next) => {
 });
 
 app.use((err,req,res,next) => {
+  if (err.type === 'entity.too.large') return res.status(413).json({ error: 'O conteúdo enviado excede o limite permitido.' });
   console.error(err);
   if (err instanceof multer.MulterError) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? `Arquivo maior que ${MAX_MB} MB.` : 'Falha no upload.' });
   res.status(500).json({ error: 'Erro interno.' });
@@ -1242,7 +1233,7 @@ app.use((err,req,res,next) => {
 (async () => {
   await fs.mkdir(STORAGE, { recursive: true });
   await initDb();
-  const server = appServer.listen(PORT, () => console.log(`Hostfy app listening on ${PORT}`));
+  const server = app.listen(PORT, () => console.log(`Hostfy app listening on ${PORT}`));
   const previewEntry = path.join(__dirname, 'ai-preview.js');
   if (process.env.AI_PREVIEW_ENABLED !== 'false' && process.env.AI_PREVIEW_SERVICE !== 'external') {
     const { spawn } = require('child_process');

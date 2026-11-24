@@ -27,7 +27,7 @@ Além disso, cada projeto tem:
 | `/files/:id` | **Arquivos** — gerenciador de arquivos do projeto (listar, editar, enviar, renomear, excluir). |
 | `/database/:id` | **Banco** — banco de dados do projeto: conexão, uso de disco, tabelas e console SQL. |
 | `/deploy` | **Publicar** — envio de ZIP (estático/PHP/Node) ou de um projeto Docker Compose. |
-| `/ai` | **Criar com IA** — descreva o projeto em linguagem natural e o AI Builder gera um app React (shadcn/ui + lucide + recharts) e publica. |
+| `/ai-builder` | **Criar com IA** — descreva o projeto no chat, acompanhe o preview e publique o app React. |
 | `/docker` | **Docker** — gerenciamento das stacks Compose, métricas e ciclo de vida. |
 | `/github` | **GitHub** — vincular conta (PAT), listar repositórios e publicar direto do repositório. |
 | `/system` | **Sistema** — (administrador) métricas do Docker do host, candidatos à limpeza e prune completo. |
@@ -85,7 +85,7 @@ minha-api.zip
 
 ## AI Builder (criar projeto com IA)
 
-A página **Criar com IA** (`/ai`) gera um app **React + Vite + Tailwind + shadcn/ui +
+A página **Criar com IA** (`/ai-builder`) gera um app **React + Vite + Tailwind + shadcn/ui +
 lucide-react + recharts** a partir de uma descrição em linguagem natural e publica
 como projeto Node.
 
@@ -99,7 +99,11 @@ como projeto Node.
    - `update` — reescreve o arquivo inteiro;
    - `patch` — aplica um **unified diff** sobre o conteúdo atual (preferido para
      editar arquivos existentes, economiza tokens e reduz regressões).
-3. Ao publicar (`POST /api/ai/deploy`), o backend **mescla** as operações sobre o
+3. Os arquivos aparecem conforme chegam e o preview exibe cada versão que compila.
+   Se a compilação falhar, a última versão disponível fica no painel enquanto o Builder
+   tenta corrigir o código. O usuário pode parar, continuar a partir dos arquivos recebidos,
+   pedir ajustes no chat ou desfazer a última alteração.
+4. Ao publicar (`POST /api/ai/deploy`), o backend **mescla** as operações sobre o
    boilerplate em [`templates/react-shadcn`](./templates/react-shadcn) e sobe como
    projeto Node (o runner roda `npm ci`, `npm run build` e `npm start`).
 
@@ -124,6 +128,9 @@ Azure OpenAI, Groq, Together, OpenRouter, Ollama, LM Studio…).
 > build. Por isso tudo que o build precisa (`vite`, `@vitejs/plugin-react`,
 > `tailwindcss`, `postcss`, `autoprefixer`) fica em `dependencies` no template.
 > Se mover para `devDependencies`, o build quebra em produção.
+
+O Docker instala as dependências do preview junto com a imagem do painel. O chat usa
+`text/event-stream` e o navegador carrega versões compiladas por HTTP no domínio do painel.
 
 ## Projetos Docker Compose
 

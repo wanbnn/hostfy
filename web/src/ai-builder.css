@@ -139,10 +139,6 @@
   background-color: var(--bgColor-muted);
 }
 
-.ai-operation-card.pending {
-  border-color: var(--borderColor-accent-muted, rgba(47, 129, 247, 0.45));
-}
-
 .ai-operation-heading {
   display: flex;
   justify-content: space-between;
@@ -152,35 +148,12 @@
   font-weight: 600;
 }
 
-.ai-operation-status,
-.ai-msg-stream-status {
-  color: var(--fgColor-muted);
-  font-size: 11px;
-  font-weight: 400;
-}
-
 .ai-operation-path {
   display: block;
   margin-top: 4px;
   color: var(--fgColor-accent, #2f81f7);
   font-size: 11px;
   overflow-wrap: anywhere;
-}
-
-.ai-operation-preview {
-  max-height: 96px;
-  margin: 8px 0 0;
-  overflow: hidden;
-  color: var(--fgColor-muted);
-  font-family: var(--fontStack-monospace, ui-monospace, monospace);
-  font-size: 10px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.ai-msg-stream-status {
-  padding: 8px 0;
 }
 
 .ai-msg-user .ai-msg-text {
@@ -363,6 +336,16 @@
   fill: currentColor;
 }
 
+.ai-right-tabs .ai-undo-button {
+  margin-left: auto;
+  padding-inline: 12px;
+}
+
+.ai-right-tabs button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .ai-tab-badge {
   display: inline-flex;
   align-items: center;
@@ -400,6 +383,54 @@
   background-color: var(--bgColor-default);
   border-bottom: 1px solid var(--borderColor-default);
   flex-shrink: 0;
+}
+
+.ai-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.ai-preview-error,
+.ai-generation-issue {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--borderColor-default);
+  background: var(--bgColor-attention-muted, var(--bgColor-muted));
+  color: var(--fgColor-default);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.ai-preview-error details {
+  min-width: 0;
+}
+
+.ai-preview-error summary {
+  cursor: pointer;
+}
+
+.ai-preview-error pre {
+  max-height: 96px;
+  margin: 6px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.ai-preview-error button,
+.ai-generation-issue button {
+  flex-shrink: 0;
+}
+
+.ai-generation-issue {
+  max-height: 95px;
+  overflow: auto;
 }
 
 .ai-preview-url {
@@ -485,11 +516,18 @@
   color: var(--fgColor-muted);
 }
 
+.ai-file-row {
+  display: flex;
+  align-items: center;
+  padding-right: 6px;
+}
+
 .ai-file-item {
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 6px 12px;
   border: none;
   background: none;
@@ -501,12 +539,12 @@
   position: relative;
 }
 
-.ai-file-item:hover {
+.ai-file-row:hover {
   background-color: var(--bgColor-muted);
   color: var(--fgColor-default);
 }
 
-.ai-file-item.active {
+.ai-file-row.active {
   background-color: var(--bgColor-accent-muted, rgba(47, 129, 247, 0.1));
   color: var(--fgColor-default);
 }
@@ -524,7 +562,7 @@
 }
 
 .ai-file-delete {
-  display: none;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 2px;
@@ -535,11 +573,12 @@
   border-radius: 2px;
 }
 
-.ai-file-item:hover .ai-file-delete {
-  display: inline-flex;
+.ai-file-delete:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
-.ai-file-delete:hover {
+.ai-file-delete:not(:disabled):hover {
   color: var(--fgColor-danger, #f85149);
   background-color: rgba(248, 81, 73, 0.12);
 }

@@ -18,13 +18,14 @@ function splitLines(text) {
 // Cada hunk: { oldStart, oldLines: [{type, text}], newCount }
 function parseHunks(patch) {
   const lines = splitLines(patch);
+  if (lines.at(-1) === '') lines.pop();
   const hunks = [];
   let current = null;
 
   for (const line of lines) {
     const header = line.match(/^@@\s*-(\d+)(?:,(\d+))?\s*\+(\d+)(?:,(\d+))?\s*@@/);
     if (header) {
-      current = { oldStart: Number(header[1]), lines: [] };
+      current = { oldStart: Number(header[1]), insertion: header[2] === '0', lines: [] };
       hunks.push(current);
       continue;
     }
@@ -73,7 +74,7 @@ function applyPatch(original, patch) {
   for (const hunk of hunks) {
     // Prefere a posição declarada no cabeçalho; se não casar, procura adiante.
     let start = -1;
-    const declared = Math.max(0, hunk.oldStart - 1);
+    const declared = Math.min(fileLines.length, Math.max(0, hunk.oldStart - (hunk.insertion ? 0 : 1)));
     if (declared >= cursor) {
       const probe = findHunkStart(fileLines, hunk.lines, declared);
       if (probe !== -1 && probe >= cursor) start = probe;

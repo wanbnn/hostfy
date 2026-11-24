@@ -1,500 +1,195 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react'
+import React, {useEffect, useRef, useState} from 'react'
+import {Button, Heading, IconButton, Label, Spinner, Text, TextInput} from '@primer/react'
 import {
-  Button,
-  FormControl,
-  Heading,
-  IconButton,
-  Label,
-  Spinner,
-  Stack,
-  Text,
-  TextInput,
-} from '@primer/react'
-import {
-  CopyIcon,
-  DownloadIcon,
   FileCodeIcon,
   FileDirectoryIcon,
-  FileIcon,
   GlobeIcon,
+  LinkExternalIcon,
   PaperAirplaneIcon,
   PersonIcon,
   PlusIcon,
   RocketIcon,
   SparkleFillIcon,
+  StopIcon,
   SyncIcon,
-  TrashIcon,
+  UndoIcon,
   XIcon,
 } from '@primer/octicons-react'
 import {api} from '../api.js'
-import {useRouter} from '../router.jsx'
-import templatePackage from '../../../templates/react-shadcn/package.json?raw'
-import templateViteConfig from '../../../templates/react-shadcn/vite.config.ts?raw'
-import templateTsConfig from '../../../templates/react-shadcn/tsconfig.json?raw'
-import templateTailwindConfig from '../../../templates/react-shadcn/tailwind.config.js?raw'
-import templatePostcssConfig from '../../../templates/react-shadcn/postcss.config.js?raw'
-import templateHtml from '../../../templates/react-shadcn/index.html?raw'
-import templateServer from '../../../templates/react-shadcn/server.js?raw'
-import templateMain from '../../../templates/react-shadcn/src/main.tsx?raw'
-import templateApp from '../../../templates/react-shadcn/src/App.tsx?raw'
-import templateCss from '../../../templates/react-shadcn/src/index.css?raw'
-import templateUtils from '../../../templates/react-shadcn/src/lib/utils.ts?raw'
-import templateUiAvatar from '../../../templates/react-shadcn/src/components/ui/avatar.tsx?raw'
-import templateUiBadge from '../../../templates/react-shadcn/src/components/ui/badge.tsx?raw'
-import templateUiButton from '../../../templates/react-shadcn/src/components/ui/button.tsx?raw'
-import templateUiCard from '../../../templates/react-shadcn/src/components/ui/card.tsx?raw'
-import templateUiCheckbox from '../../../templates/react-shadcn/src/components/ui/checkbox.tsx?raw'
-import templateUiDialog from '../../../templates/react-shadcn/src/components/ui/dialog.tsx?raw'
-import templateUiDropdownMenu from '../../../templates/react-shadcn/src/components/ui/dropdown-menu.tsx?raw'
-import templateUiInput from '../../../templates/react-shadcn/src/components/ui/input.tsx?raw'
-import templateUiLabel from '../../../templates/react-shadcn/src/components/ui/label.tsx?raw'
-import templateUiProgress from '../../../templates/react-shadcn/src/components/ui/progress.tsx?raw'
-import templateUiSelect from '../../../templates/react-shadcn/src/components/ui/select.tsx?raw'
-import templateUiSeparator from '../../../templates/react-shadcn/src/components/ui/separator.tsx?raw'
-import templateUiSkeleton from '../../../templates/react-shadcn/src/components/ui/skeleton.tsx?raw'
-import templateUiSwitch from '../../../templates/react-shadcn/src/components/ui/switch.tsx?raw'
-import templateUiTable from '../../../templates/react-shadcn/src/components/ui/table.tsx?raw'
-import templateUiTabs from '../../../templates/react-shadcn/src/components/ui/tabs.tsx?raw'
-import templateUiTextarea from '../../../templates/react-shadcn/src/components/ui/textarea.tsx?raw'
-import templateUiTooltip from '../../../templates/react-shadcn/src/components/ui/tooltip.tsx?raw'
-import templateHostfyComponents from '../../../templates/react-shadcn/src/components/hostfy/index.tsx?raw'
-import templateHostfyStyles from '../../../templates/react-shadcn/src/components/hostfy/styles.css?raw'
+import {streamGeneration} from '../ai-builder-stream.js'
 
-const PREVIEW_TEMPLATE_FILES = [
-  ['package.json', templatePackage],
-  ['vite.config.ts', templateViteConfig],
-  ['tsconfig.json', templateTsConfig],
-  ['tailwind.config.js', templateTailwindConfig],
-  ['postcss.config.js', templatePostcssConfig],
-  ['index.html', templateHtml],
-  ['server.js', templateServer],
-  ['src/main.tsx', templateMain],
-  ['src/App.tsx', templateApp],
-  ['src/index.css', templateCss],
-  ['src/lib/utils.ts', templateUtils],
-  ['src/components/ui/avatar.tsx', templateUiAvatar],
-  ['src/components/ui/badge.tsx', templateUiBadge],
-  ['src/components/ui/button.tsx', templateUiButton],
-  ['src/components/ui/card.tsx', templateUiCard],
-  ['src/components/ui/checkbox.tsx', templateUiCheckbox],
-  ['src/components/ui/dialog.tsx', templateUiDialog],
-  ['src/components/ui/dropdown-menu.tsx', templateUiDropdownMenu],
-  ['src/components/ui/input.tsx', templateUiInput],
-  ['src/components/ui/label.tsx', templateUiLabel],
-  ['src/components/ui/progress.tsx', templateUiProgress],
-  ['src/components/ui/select.tsx', templateUiSelect],
-  ['src/components/ui/separator.tsx', templateUiSeparator],
-  ['src/components/ui/skeleton.tsx', templateUiSkeleton],
-  ['src/components/ui/switch.tsx', templateUiSwitch],
-  ['src/components/ui/table.tsx', templateUiTable],
-  ['src/components/ui/tabs.tsx', templateUiTabs],
-  ['src/components/ui/textarea.tsx', templateUiTextarea],
-  ['src/components/ui/tooltip.tsx', templateUiTooltip],
-  ['src/components/hostfy/index.tsx', templateHostfyComponents],
-  ['src/components/hostfy/styles.css', templateHostfyStyles],
+const SUGGESTIONS = [
+  {text: 'Landing page moderna com hero e seção de features', icon: RocketIcon},
+  {text: 'Dashboard com sidebar, cards de métricas e tabela', icon: GlobeIcon},
+  {text: 'Página de portfólio com galeria e seção about', icon: FileCodeIcon},
+  {text: 'App de tarefas com lista, formulário e filtros', icon: PlusIcon},
 ]
 
-function readTemplateFiles() {
-  return PREVIEW_TEMPLATE_FILES.map(([path, content]) => ({path, content}))
+const GREETING = {
+  role: 'assistant',
+  content: 'Descreva o projeto que você quer criar. Acompanhe as versões no preview e peça os ajustes que precisar pelo chat.',
 }
 
-/* ------------------------------------------------------------------ */
-/* Helpers                                                             */
-/* ------------------------------------------------------------------ */
-
-function slugify(v) {
-  return v.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+const EMPTY_PREVIEW = {
+  url: '',
+  previousUrl: '',
+  ready: false,
+  loading: false,
+  disabled: false,
+  error: '',
+  failure: null,
 }
 
-function fileIcon(name) {
-  if (!name) return FileIcon
-  const ext = name.split('.').pop().toLowerCase()
-  const code = ['js', 'jsx', 'ts', 'tsx', 'json', 'css', 'html', 'md', 'mjs']
-  return code.includes(ext) ? FileCodeIcon : FileIcon
+const PHASE_LABELS = {
+  waiting: 'Preparando a geração…',
+  writing: 'Gerando arquivos…',
+  building: 'Compilando o preview…',
+  repairing: 'Corrigindo automaticamente o projeto…',
 }
 
-function fileLanguage(name) {
-  if (!name) return 'text'
-  const ext = name.split('.').pop().toLowerCase()
-  const map = {
-    js: 'javascript', jsx: 'javascript', mjs: 'javascript',
-    ts: 'typescript', tsx: 'typescript',
-    json: 'json', css: 'css', html: 'html', md: 'markdown',
-  }
-  return map[ext] || 'text'
+function slugify(value) {
+  return value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
 }
 
-// Aplica um unified diff sobre um texto (mesma lógica do backend).
-function applyPatchText(original, patch) {
-  const split = t => String(t ?? '').replace(/\r\n/g, '\n').split('\n')
-  const fileLines = split(original)
-  const hunks = []
-  let current = null
-  for (const line of split(patch)) {
-    const header = line.match(/^@@\s*-(\d+)(?:,\d+)?\s*\+(\d+)(?:,\d+)?\s*@@/)
-    if (header) {
-      current = {oldStart: Number(header[1]), lines: []}
-      hunks.push(current)
-      continue
-    }
-    if (!current || line.startsWith('\\')) continue
-    const marker = line[0]
-    if (marker === ' ' || marker === '+' || marker === '-') current.lines.push({type: marker, text: line.slice(1)})
-    else if (line === '') current.lines.push({type: ' ', text: ''})
-  }
-  if (!hunks.length) throw new Error('Patch sem hunks válidos.')
-
-  const out = []
-  let cursor = 0
-  for (const hunk of hunks) {
-    const pattern = hunk.lines.filter(l => l.type !== '+')
-    const matches = (start) => pattern.every((p, i) => fileLines[start + i] === p.text)
-    let start = -1
-    const declared = Math.max(0, hunk.oldStart - 1)
-    if (declared >= cursor && declared <= fileLines.length - pattern.length && matches(declared)) start = declared
-    if (start === -1) {
-      for (let s = cursor; s <= fileLines.length - pattern.length; s++) {
-        if (matches(s)) { start = s; break }
-      }
-    }
-    if (start === -1) throw new Error('O patch não corresponde ao conteúdo atual do arquivo.')
-    for (let i = cursor; i < start; i++) out.push(fileLines[i])
-    let idx = start
-    for (const line of hunk.lines) {
-      if (line.type === ' ') { out.push(fileLines[idx]); idx++ }
-      else if (line.type === '-') idx++
-      else if (line.type === '+') out.push(line.text)
-    }
-    cursor = idx
-  }
-  for (let i = cursor; i < fileLines.length; i++) out.push(fileLines[i])
-  return out.join('\n')
-}
-
-// Aplica as operações da IA sobre a lista atual de arquivos.
-// Retorna { files, summary }.
-function applyOperations(currentFiles, operations) {
-  const map = new Map(currentFiles.map(f => [f.path, f.content]))
-  const created = []
-  const updated = []
-  const patched = []
-  const failed = []
-
-  for (const op of operations) {
-    const path = op?.path
-    if (!path) continue
-    try {
-      if (op.op === 'patch') {
-        if (!map.has(path)) throw new Error('arquivo não existe')
-        map.set(path, applyPatchText(map.get(path), op.patch))
-        patched.push(path)
-      } else {
-        const existed = map.has(path)
-        map.set(path, String(op.content ?? ''))
-        ;(existed ? updated : created).push(path)
-      }
-    } catch (err) {
-      failed.push(`${path} (${err.message})`)
-    }
-  }
-
-  const files = [...map.entries()].map(([path, content]) => ({path, content}))
-  const parts = []
-  if (created.length) parts.push(`${created.length} criado(s)`)
-  if (updated.length) parts.push(`${updated.length} atualizado(s)`)
-  if (patched.length) parts.push(`${patched.length} editado(s) via patch`)
-  if (failed.length) parts.push(`${failed.length} falhou(aram)`)
-  const summary = parts.length ? `Operações: ${parts.join(', ')}.` : 'Nenhuma alteração.'
-  return {files, summary}
-}
-
-function normalizeStreamedOperations(operations) {
-  const byPath = new Map()
-  for (const operation of operations || []) {
-    if (!operation || typeof operation.path !== 'string') continue
-    const rawPath = operation.path.replace(/\\/g, '/').trim()
-    if (rawPath.startsWith('/') || /^[a-z]:/i.test(rawPath) || rawPath.includes('\0')) continue
-    const filePath = rawPath.replace(/^\.\//, '')
-    if (!filePath || filePath.split('/').some(part => !part || part === '.' || part === '..' || part.includes(':'))) continue
-    if (filePath.toLowerCase().startsWith('src/components/hostfy/')) continue
-
-    const op = String(operation.op || 'update').toLowerCase()
-    if (op === 'patch') {
-      if (typeof operation.patch !== 'string' || !operation.patch.trim()) continue
-      byPath.set(filePath, {...operation, op, path: filePath})
-    } else if ((op === 'create' || op === 'update') && typeof operation.content === 'string') {
-      byPath.set(filePath, {...operation, op, path: filePath})
-    }
-  }
-  return [...byPath.values()]
-}
-
-function createOperationStreamParser() {
-  let text = ''
-  let searchFrom = 0
-  let cursor = 0
-  let operationStart = -1
-  let arrayDone = false
-  let depth = 0
-  let inString = false
-  let escaped = false
-
-  function decodeString(value) {
-    try { return JSON.parse(`"${value}"`) } catch { return value }
-  }
-
-  function pendingOperation() {
-    if (operationStart < 0) return null
-    const partial = text.slice(operationStart, operationStart + 512)
-    const action = partial.match(/"op"\s*:\s*"((?:\\.|[^"\\])*)"/)
-    const filePath = partial.match(/"path"\s*:\s*"((?:\\.|[^"\\])*)"/)
-    if (!filePath) return null
-    return {
-      op: action ? decodeString(action[1]) : 'update',
-      path: decodeString(filePath[1]),
-      pending: true,
-    }
-  }
-
-  return {
-    push(chunk) {
-      text += String(chunk || '')
-      const completed = []
-
-      if (cursor === 0) {
-        const keyPattern = /"(?:operations|files)"\s*:\s*\[/g
-        keyPattern.lastIndex = searchFrom
-        const match = keyPattern.exec(text)
-        if (!match) {
-          searchFrom = Math.max(0, text.length - 32)
-          return completed
-        }
-        cursor = keyPattern.lastIndex
-      }
-
-      if (arrayDone) return completed
-
-      while (cursor < text.length) {
-        const char = text[cursor]
-        if (operationStart < 0) {
-          if (char === ']') {
-            arrayDone = true
-            cursor++
-            break
-          }
-          if (char === '{') {
-            operationStart = cursor
-            depth = 1
-            inString = false
-            escaped = false
-          }
-          cursor++
-          continue
-        }
-
-        if (inString) {
-          if (escaped) escaped = false
-          else if (char === '\\') escaped = true
-          else if (char === '"') inString = false
-          cursor++
-          continue
-        }
-
-        if (char === '"') inString = true
-        else if (char === '{') depth++
-        else if (char === '}') {
-          depth--
-          if (depth === 0) {
-            try { completed.push(JSON.parse(text.slice(operationStart, cursor + 1))) } catch {}
-            operationStart = -1
-          }
-        }
-        cursor++
-      }
-
-      return completed
-    },
-    pending: pendingOperation,
-  }
-}
-
-function sameOriginPreviewUrl(value) {
-  try {
-    const url = new URL(value, window.location.origin)
-    if (url.pathname.startsWith('/__ai-preview/')) return `${url.pathname}${url.search}${url.hash}`
-  } catch {}
-  return value
-}
-
-function OperationCard({operation}) {
-  const labels = {create: 'Criando arquivo', update: 'Atualizando arquivo', patch: 'Aplicando alterações'}
-  const body = String(operation.content ?? operation.patch ?? '')
-  const preview = body.slice(0, 220)
+function ChatMessage({message, phase}) {
+  const isUser = message.role === 'user'
+  const Avatar = isUser ? PersonIcon : SparkleFillIcon
+  const verbs = {create: 'Criado', update: 'Atualizado', patch: 'Editado'}
   return (
-    <div className={`ai-operation-card ${operation.pending ? 'pending' : ''}`}>
-      <div className="ai-operation-heading">
-        <span>{labels[operation.op] || 'Arquivo'}</span>
-        {operation.pending ? <span className="ai-operation-status">gerando…</span> : null}
-      </div>
-      <code className="ai-operation-path">{operation.path}</code>
-      {!operation.pending && preview ? (
-        <pre className="ai-operation-preview">{preview}{body.length > preview.length ? '…' : ''}</pre>
-      ) : null}
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/* Mensagens do chat                                                   */
-/* ------------------------------------------------------------------ */
-
-function ChatMessage({msg}) {
-  const isUser = msg.role === 'user'
-  return (
-    <div className={`ai-msg ${isUser ? 'ai-msg-user' : 'ai-msg-assistant'}`}>
-      <div className="ai-msg-avatar">
-        {isUser ? <PersonIcon size={14} /> : <SparkleFillIcon size={14} />}
-      </div>
+    <div className={isUser ? 'ai-msg ai-msg-user' : 'ai-msg ai-msg-assistant'}>
+      <div className="ai-msg-avatar"><Avatar size={14} /></div>
       <div className="ai-msg-content">
-        {msg.files && msg.files.length > 0 ? (
-          <div className="ai-msg-files">
-            {msg.files.map((f, i) => (
-              <span key={i} className="ai-msg-file-tag">
-                <FileCodeIcon size={12} /> {f}
-              </span>
+        {message.content && <div className="ai-msg-text">{message.content}</div>}
+        {message.operations?.length > 0 && (
+          <div className="ai-msg-operations">
+            {message.operations.map(({op, path}) => (
+              <div className="ai-operation-card" key={path}>
+                <div className="ai-operation-heading">{verbs[op]}</div>
+                <code className="ai-operation-path">{path}</code>
+              </div>
             ))}
           </div>
-        ) : null}
-        {msg.content ? <div className="ai-msg-text">{msg.content}</div> : null}
-        {msg.operations?.length ? (
-          <div className="ai-msg-operations">
-            {msg.operations.map((operation, index) => <OperationCard key={`${operation.path}-${index}`} operation={operation} />)}
+        )}
+        {message.streaming && (
+          <div className="ai-msg-thinking" role="status">
+            <Spinner size="small" /> {message.pendingFile && phase === 'writing'
+              ? 'Gerando ' + message.pendingFile + '…'
+              : PHASE_LABELS[phase]}
           </div>
-        ) : null}
-        {msg.pendingOperation ? <OperationCard operation={msg.pendingOperation} /> : null}
-        {msg.repairing ? (
-          <div className="ai-msg-stream-status">Ajustando a resposta inválida e preservando os arquivos completos…</div>
-        ) : msg.streaming && !msg.operations?.length && !msg.pendingOperation ? (
-          <div className="ai-msg-stream-status">Recebendo a estrutura dos arquivos…</div>
-        ) : null}
+        )}
       </div>
     </div>
   )
 }
 
-/* ------------------------------------------------------------------ */
-/* File tree                                                           */
-/* ------------------------------------------------------------------ */
-
-function FileTree({files, selected, onSelect, onDelete}) {
-  // Agrupa arquivos em pastas
-  const tree = {}
-  for (const f of files) {
-    const parts = f.path.split('/')
-    if (parts.length === 1) {
-      tree[f.path] = f
-    } else {
-      const dir = parts.slice(0, -1).join('/')
-      if (!tree[dir]) tree[dir] = {dir: true, name: dir, children: []}
-      tree[dir].children.push(f)
-    }
-  }
-
-  return (
-    <div className="ai-file-tree">
-      {files.length === 0 ? (
+function FileTree({files, selected, onSelect, onDelete, locked}) {
+  if (!files.length) {
+    return (
+      <div className="ai-file-tree">
         <div className="ai-file-empty">
           <FileDirectoryIcon size={20} />
           <Text className="muted small">Os arquivos do projeto aparecerão aqui.</Text>
         </div>
-      ) : (
-        files.map(f => {
-          const Icon = fileIcon(f.path)
-          const isActive = selected === f.path
-          return (
-            <button
-              key={f.path}
-              type="button"
-              className={`ai-file-item ${isActive ? 'active' : ''}`}
-              onClick={() => onSelect(f.path)}
-              title={f.path}
-            >
-              <Icon size={14} />
-              <span className="ai-file-name">{f.path}</span>
-              <button
-                type="button"
-                className="ai-file-delete"
-                title="Remover"
-                onClick={e => {
-                  e.stopPropagation()
-                  onDelete(f.path)
-                }}
-              >
-                <XIcon size={12} />
-              </button>
-            </button>
-          )
-        })
-      )}
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/* Preview iframe                                                      */
-/* ------------------------------------------------------------------ */
-
-function PreviewPane({files, deployUrl, previewUrl, previewError, previewLoading}) {
-  const activeUrl = deployUrl || previewUrl
-  if (activeUrl) {
-    return (
-      <div className="ai-preview-wrap">
-        <div className="ai-preview-toolbar">
-          <div className="ai-preview-url">
-            <GlobeIcon size={14} />
-            <span>{activeUrl}</span>
-          </div>
-          <IconButton
-            icon={SyncIcon}
-            variant="invisible"
-            size="small"
-            aria-label="Abrir em nova aba"
-            onClick={() => window.open(activeUrl, '_blank', 'noopener')}
-          />
-        </div>
-        <iframe
-          className="ai-preview-frame"
-          src={activeUrl}
-          key={activeUrl}
-          title="Preview do projeto"
-        />
       </div>
     )
   }
 
   return (
-    <div className="ai-preview-wrap">
-      <div className="ai-preview-toolbar">
-        <div className="ai-preview-url">
-          <GlobeIcon size={14} />
-          <span>preview://{previewLoading ? 'iniciando' : 'aguardando'}</span>
+    <div className="ai-file-tree">
+      {files.map(file => (
+        <div className={selected === file.path ? 'ai-file-row active' : 'ai-file-row'} key={file.path}>
+          <button type="button" className="ai-file-item" onClick={() => onSelect(file.path)} title={file.path}>
+            <FileCodeIcon size={14} />
+            <span className="ai-file-name">{file.path}</span>
+          </button>
+          <button
+            type="button"
+            className="ai-file-delete"
+            aria-label={'Remover ' + file.path}
+            disabled={locked}
+            onClick={() => onDelete(file.path)}
+          >
+            <XIcon size={12} />
+          </button>
         </div>
-      </div>
-      <div className="ai-preview-placeholder">
-        <GlobeIcon size={28} />
-        <Text className="muted">
-          {previewError || (files.length === 0
-            ? 'Descreva o projeto no chat para gerar os arquivos.'
-            : previewLoading ? 'Atualizando o preview…' : 'Preparando o preview ao vivo…')}
-        </Text>
-      </div>
+      ))}
     </div>
   )
 }
 
-/* ------------------------------------------------------------------ */
-/* Code viewer                                                         */
-/* ------------------------------------------------------------------ */
+function PreviewPane({preview, files, phase, publishedUrl, frameRef, onRefresh, onRepair}) {
+  let status = 'Aguardando a primeira versão'
+  if (preview.disabled) status = 'Preview desativado'
+  else if (preview.loading) status = 'Compilando o preview…'
+  else if (preview.url) status = preview.ready ? 'Preview ao vivo' : 'Última versão disponível'
+  else if (preview.error) status = 'Preview indisponível'
+  else if (phase) status = PHASE_LABELS[phase]
+
+  return (
+    <div className="ai-preview-wrap">
+      <div className="ai-preview-toolbar">
+        <div className="ai-preview-url" role="status">
+          {preview.loading ? <Spinner size="small" /> : <GlobeIcon size={14} />}
+          <span>{status}</span>
+        </div>
+        <div className="ai-preview-actions">
+          {publishedUrl && <a href={publishedUrl} target="_blank" rel="noreferrer">Abrir publicado</a>}
+          {files.length > 0 && !preview.disabled && (
+            <IconButton
+              icon={SyncIcon}
+              variant="invisible"
+              size="small"
+              aria-label="Atualizar preview"
+              disabled={Boolean(phase) || preview.loading}
+              onClick={onRefresh}
+            />
+          )}
+          {preview.url && (
+            <IconButton
+              icon={LinkExternalIcon}
+              variant="invisible"
+              size="small"
+              aria-label="Abrir preview em nova aba"
+              onClick={() => window.open(preview.url, '_blank', 'noopener,noreferrer')}
+            />
+          )}
+        </div>
+      </div>
+      {preview.error && (
+        <div className="ai-preview-error">
+          <details>
+            <summary>{preview.failure === 'network' ? 'Falha ao atualizar o preview' : 'Esta versão precisa de ajustes'}</summary>
+            <pre>{preview.error}</pre>
+          </details>
+          {!phase && preview.failure !== 'network' && (
+            <Button size="small" onClick={onRepair}>Corrigir com IA</Button>
+          )}
+        </div>
+      )}
+      {preview.url ? (
+        <iframe
+          ref={frameRef}
+          className="ai-preview-frame"
+          src={preview.url}
+          key={preview.url}
+          sandbox="allow-scripts allow-forms allow-modals allow-downloads"
+          referrerPolicy="no-referrer"
+          title="Preview do projeto"
+        />
+      ) : (
+        <div className="ai-preview-placeholder">
+          <GlobeIcon size={28} />
+          <Text className="muted">
+            {preview.disabled ? 'O servidor está com o preview desativado.' :
+              preview.error ? 'Os arquivos continuam disponíveis para edição pelo chat.' :
+              phase || preview.loading ? 'O projeto aparece assim que a primeira versão compilar.' :
+              'Descreva o projeto no chat para começar.'}
+          </Text>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function CodeViewer({file}) {
   if (!file) {
@@ -508,392 +203,351 @@ function CodeViewer({file}) {
   return (
     <div className="ai-code-viewer">
       <div className="ai-code-header">
-        <span className="ai-code-path">
-          <FileCodeIcon size={14} /> {file.path}
-        </span>
-        <Label variant="secondary">{fileLanguage(file.path)}</Label>
+        <span className="ai-code-path"><FileCodeIcon size={14} /> {file.path}</span>
+        <Label variant="secondary">{file.path.split('.').pop()}</Label>
       </div>
       <pre className="ai-code-content">{file.content}</pre>
     </div>
   )
 }
 
-/* ------------------------------------------------------------------ */
-/* Sugestões rápidas                                                   */
-/* ------------------------------------------------------------------ */
-
-const SUGGESTIONS = [
-  {text: 'Landing page moderna com hero e seção de features', icon: RocketIcon},
-  {text: 'Dashboard com sidebar, cards de métricas e tabela', icon: GlobeIcon},
-  {text: 'Página de portfólio com galeria e seção about', icon: FileCodeIcon},
-  {text: 'App de tarefas com lista, formulário e filtros', icon: PlusIcon},
-]
-
-/* ------------------------------------------------------------------ */
-/* AI Builder (página principal)                                       */
-/* ------------------------------------------------------------------ */
-
 export default function AiBuilderPage({onRefresh}) {
-  useRouter()
-  const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      content: 'Olá! Sou o assistente de criação de projetos da Hostfy.\n\nDescreva o projeto que deseja criar e eu vou gerar os arquivos para você. Os projetos usam React + shadcn/ui + Lucide Icons + Recharts e incluem prefabs responsivos para dashboards: AppShell, cards de métricas, painéis, tabelas e estados vazios. O código da aplicação continua editável pelo chat.\n\nVocê pode dizer algo como:\n• "Crie uma landing page com hero e seção de preços"\n• "Quero um dashboard com sidebar e gráficos de vendas"\n• "Monte um portfólio minimalista"',
-    },
-  ])
+  const [messages, setMessages] = useState([GREETING])
   const [input, setInput] = useState('')
-  const [sending, setSending] = useState(false)
+  const [phase, setPhase] = useState('')
+  const [issue, setIssue] = useState('')
+  const [lastRequest, setLastRequest] = useState('')
   const [projectFiles, setProjectFiles] = useState([])
   const [selectedFile, setSelectedFile] = useState(null)
-  const [rightTab, setRightTab] = useState('preview') // 'preview' | 'files'
+  const [rightTab, setRightTab] = useState('preview')
   const [projectName, setProjectName] = useState('')
   const [projectSlug, setProjectSlug] = useState('')
   const [deploying, setDeploying] = useState(false)
-  const [deployUrl, setDeployUrl] = useState('')
-  const [previewUrl, setPreviewUrl] = useState('')
-  const [previewReady, setPreviewReady] = useState(false)
-  const [previewError, setPreviewError] = useState('')
-  const [previewLoading, setPreviewLoading] = useState(false)
-  const [boilerplate, setBoilerplate] = useState([])
-  const previewSession = useRef(0)
-  const chatMessagesRef = useRef(null)
-  const stickToBottomRef = useRef(true)
+  const [publishedUrl, setPublishedUrl] = useState('')
+  const [preview, setPreview] = useState(EMPTY_PREVIEW)
+  const [undo, setUndo] = useState(null)
+  const [draftId] = useState(() => Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join(''))
+  const generation = useRef(null)
+  const previewRequest = useRef(null)
+  const frameRef = useRef(null)
+  const chatRef = useRef(null)
+  const stickToBottom = useRef(true)
   const inputRef = useRef(null)
 
-  // Mantém a rolagem no fim enquanto a pessoa não tiver subido para ler mensagens anteriores.
   useEffect(() => {
-    const container = chatMessagesRef.current
-    if (container && stickToBottomRef.current) container.scrollTop = container.scrollHeight
-  }, [messages])
+    const chat = chatRef.current
+    if (chat && stickToBottom.current) chat.scrollTop = chat.scrollHeight
+  }, [messages, phase])
 
-  const handleChatScroll = useCallback(() => {
-    const container = chatMessagesRef.current
-    if (!container) return
-    stickToBottomRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 48
-  }, [])
-
-  // Foca o input ao montar
   useEffect(() => {
     inputRef.current?.focus()
+    const reportError = event => {
+      const frame = frameRef.current
+      if (!frame || event.source !== frame.contentWindow || event.origin !== 'null' ||
+          event.data?.type !== 'hostfy-preview-error' || typeof event.data.error !== 'string') return
+      const failedUrl = frame.getAttribute('src')
+      const error = event.data.error.slice(0, 1000)
+      setPreview(current => current.url === failedUrl ? {
+        ...current,
+        url: current.previousUrl,
+        previousUrl: '',
+        ready: false,
+        error,
+        failure: 'runtime',
+      } : current)
+    }
+    window.addEventListener('message', reportError)
+    return () => {
+      window.removeEventListener('message', reportError)
+      generation.current?.abort()
+      previewRequest.current?.abort()
+    }
   }, [])
 
-  useEffect(() => {
-    let active = true
-    if (active) setBoilerplate(readTemplateFiles())
-    return () => { active = false }
-  }, [])
+  function showPreview(url, ready) {
+    setPreview(current => ({
+      ...EMPTY_PREVIEW,
+      url,
+      previousUrl: url === current.url ? current.previousUrl : current.url,
+      ready,
+    }))
+  }
 
-  useEffect(() => {
-    if (!boilerplate.length) return
-    const timer = setTimeout(async () => {
-      const version = ++previewSession.current
-      setPreviewLoading(true)
-      setPreviewError('')
-      try {
-        const map = new Map(boilerplate.map(file => [file.path, file.content]))
-        for (const file of projectFiles) map.set(file.path, file.content)
-        const result = await api('/api/ai/preview', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({files: [...map].map(([path, content]) => ({path, content}))}),
-        })
-        if (version === previewSession.current) {
-          setPreviewReady(current => current || Boolean(result.ready))
-          setPreviewUrl(sameOriginPreviewUrl(result.url))
-        }
-      } catch (error) {
-        if (version === previewSession.current) setPreviewError(error.message)
-      } finally {
-        if (version === previewSession.current) setPreviewLoading(false)
-      }
-    }, projectFiles.length ? 700 : 0)
-    return () => clearTimeout(timer)
-  }, [boilerplate, projectFiles])
+  async function refreshPreview(files) {
+    previewRequest.current?.abort()
+    if (!files.length) {
+      setPreview(EMPTY_PREVIEW)
+      return
+    }
+    const controller = new AbortController()
+    previewRequest.current = controller
+    setPreview(current => ({...current, loading: true, ready: false}))
+    try {
+      const result = await api('/api/ai/preview', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({draftId, files}),
+        signal: controller.signal,
+      })
+      if (!controller.signal.aborted) showPreview(result.url, result.ready)
+    } catch (error) {
+      if (!controller.signal.aborted) setPreview(current => ({
+        ...current,
+        loading: false,
+        error: error.message,
+        failure: error.code === 'PREVIEW_BUILD' ? 'build' : 'network',
+      }))
+    } finally {
+      if (previewRequest.current === controller) previewRequest.current = null
+    }
+  }
 
-  useEffect(() => {
-    if (previewReady || !previewUrl) return
-    const timer = setInterval(async () => {
-      try {
-        const response = await fetch(previewUrl, {credentials: 'same-origin'})
-        if (response.ok) setPreviewReady(true)
-      } catch {}
-    }, 1500)
-    return () => clearInterval(timer)
-  }, [previewReady, previewUrl])
+  async function processAiResponse(description, label = description) {
+    if (generation.current || deploying) return
+    previewRequest.current?.abort()
+    const controller = new AbortController()
+    generation.current = controller
+    stickToBottom.current = true
+    setIssue('')
+    setPhase('waiting')
+    setPreview(current => ({...current, loading: false}))
+    setMessages(current => [...current, {role: 'user', content: label}, {role: 'assistant', streaming: true, operations: []}])
 
-  // Chama o backend, que consulta o LLM e devolve operações (create/update/patch).
-  // O boilerplate (package.json, configs, componentes shadcn) é mesclado no
-  // deploy, então aqui só lidamos com os arquivos gerados pela IA.
-  const processAiResponse = useCallback(async (userMessage) => {
-    stickToBottomRef.current = true
-    setMessages(prev => [...prev, {role: 'user', content: userMessage}])
-    setSending(true)
+    const before = {files: projectFiles, preview}
+    const knownFiles = new Map(projectFiles.map(file => [file.path, file]))
+    const operations = new Map()
+    let latestVersion = 0
+
+    function finish(content) {
+      setMessages(current => [...current.slice(0, -1), {role: 'assistant', content, operations: [...operations.values()]}])
+    }
 
     try {
-      // Envia o boilerplate e o conteúdo atual para o modelo editar via patch.
-      const existingFiles = projectFiles.map(f => ({path: f.path, content: f.content}))
-      const templateFiles = projectFiles.length ? [] : boilerplate.filter(file => file.path.startsWith('src/'))
-      const response = await fetch('/api/ai/generate', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {'Content-Type': 'application/json', Accept: 'text/event-stream'},
-        body: JSON.stringify({description: userMessage, existingFiles: [...templateFiles, ...existingFiles], stream: true}),
-      })
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}))
-        throw new Error(error.error || 'Não foi possível gerar o projeto.')
-      }
-
-      let streamBuffer = ''
-      let pendingOperations = null
-      let streamError = null
-      let autoRepairAttempted = false
-      let streamedOperations = []
-      const operationParser = createOperationStreamParser()
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      const handleEvent = raw => {
-        const lines = raw.split(/\r?\n/)
-        const event = lines.find(line => line.startsWith('event:'))?.slice(6).trim()
-        const dataLine = lines.find(line => line.startsWith('data:'))
-        if (!dataLine) return
-        const data = JSON.parse(dataLine.slice(5).trim())
-        if (event === 'token') {
-          const operations = operationParser.push(data.token)
-          streamedOperations.push(...operations)
-          const pendingOperation = operationParser.pending()
-          setMessages(prev => {
-            const last = prev[prev.length - 1]
-            if (last?.streaming) return [...prev.slice(0, -1), {
-              ...last,
-              operations: [...(last.operations || []), ...operations],
-              pendingOperation,
-            }]
-            return [...prev, {role: 'assistant', streaming: true, operations, pendingOperation}]
-          })
-        } else if (event === 'repair') {
-          autoRepairAttempted = true
-          setMessages(prev => {
-            const last = prev[prev.length - 1]
-            if (!last?.streaming) return prev
-            return [...prev.slice(0, -1), {...last, repairing: true, pendingOperation: null}]
-          })
-        } else if (event === 'complete') {
-          pendingOperations = data.operations || []
-          autoRepairAttempted = Boolean(data.autoRepairAttempted)
-          if (pendingOperations.length) streamedOperations = pendingOperations
-        } else if (event === 'error') streamError = data.error
-      }
-      while (true) {
-        const {value, done} = await reader.read()
-        streamBuffer += decoder.decode(value || new Uint8Array(), {stream: !done})
-        const events = streamBuffer.split(/\r?\n\r?\n/)
-        streamBuffer = events.pop() || ''
-        events.forEach(handleEvent)
-        if (done) break
-      }
-      if (streamBuffer.trim()) handleEvent(streamBuffer)
-      if (streamError) throw new Error(streamError)
-      const operations = pendingOperations || []
-      const baseFiles = projectFiles.length ? projectFiles : boilerplate.filter(file => file.path.startsWith('src/'))
-      const {files: nextFiles, summary} = applyOperations(baseFiles, operations)
-      const entryNotCustomized = !operations.some(operation => operation.path === 'src/App.tsx') && !projectFiles.length
-      setProjectFiles(nextFiles)
-
-      setMessages(prev => {
-        const streamedMessage = prev.find(msg => msg.streaming)
-        return [
-          ...prev.filter(msg => !msg.streaming),
-          ...(streamedMessage ? [{
-            role: 'assistant',
-            operations,
-          }] : []),
-          {
-            role: 'assistant',
-            content: entryNotCustomized
-              ? `${autoRepairAttempted ? 'Corrigi automaticamente a resposta do modelo. ' : ''}Preservei os arquivos gerados. ${summary}\n\nA IA não personalizou src/App.tsx nesta resposta; o dashboard-base continua disponível. Peça para adaptar a tela a partir dele.`
-              : `${autoRepairAttempted ? 'Corrigi automaticamente a resposta do modelo. ' : ''}Pronto! ${summary}\n\nO projeto usa React + shadcn/ui + Lucide + Recharts. Veja o código na aba "Arquivos". Quando estiver satisfeito, preencha o nome/slug e clique em "Publicar na Hostfy".`,
-            files: operations.map(o => o.path),
-          },
-        ]
-      })
-      setRightTab('files')
-
-      if (!projectName) {
-        const name = userMessage.slice(0, 60).trim()
-        setProjectName(name)
-        setProjectSlug(slugify(name).slice(0, 50))
-      }
-    } catch (err) {
-      const partialOperations = normalizeStreamedOperations(streamedOperations)
-      if (partialOperations.length) {
-        const baseFiles = projectFiles.length ? projectFiles : boilerplate.filter(file => file.path.startsWith('src/'))
-        const {files: recoveredFiles, summary} = applyOperations(baseFiles, partialOperations)
-        setProjectFiles(recoveredFiles)
-        setRightTab('files')
-        if (!projectName) {
-          const name = userMessage.slice(0, 60).trim()
-          setProjectName(name)
-          setProjectSlug(slugify(name).slice(0, 50))
+      const result = await streamGeneration({draftId, description, existingFiles: projectFiles}, controller.signal, (event, data) => {
+        if (event === 'writing') {
+          setPhase(current => current === 'repairing' ? current : 'writing')
+          if (data.path) setMessages(current => [
+            ...current.slice(0, -1),
+            {...current[current.length - 1], pendingFile: data.path},
+          ])
         }
-        setMessages(prev => [
-          ...prev.filter(msg => !msg.streaming),
-          {role: 'assistant', operations: partialOperations},
-          {
-            role: 'assistant',
-            content: `A resposta parou antes de finalizar, mas mantive as operações completas na aba "Arquivos". ${summary}\n\nErro final: ${err.message}`,
-            files: partialOperations.map(operation => operation.path),
-          },
-        ])
+        if (event === 'file') {
+          if (!latestVersion) {
+            setUndo(before)
+            setProjectName(current => current || label.slice(0, 60).trim())
+            setProjectSlug(current => current || slugify(label).slice(0, 50).replace(/-$/, ''))
+          }
+          latestVersion = data.version
+          const {op, path, content} = data
+          knownFiles.set(path, {path, content})
+          operations.set(path, {op, path})
+          setProjectFiles([...knownFiles.values()])
+          setSelectedFile(current => current || path)
+          setPreview(current => ({...current, ready: false}))
+          setPhase(current => current === 'repairing' ? current : 'writing')
+          setMessages(current => [
+            ...current.slice(0, -1),
+            {...current[current.length - 1], pendingFile: null, operations: [...operations.values()]},
+          ])
+        } else if (event === 'build') {
+          setPhase(current => current === 'repairing' ? current : 'building')
+          setPreview(current => ({...current, loading: true}))
+        } else if (event === 'preview') {
+          showPreview(data.url, data.version === latestVersion)
+          setPhase(current => current === 'repairing' ? current : 'writing')
+        } else if (event === 'repair') {
+          setPhase('repairing')
+          setPreview(current => ({...current, loading: false}))
+        }
+      })
+
+      setProjectFiles(result.files)
+      setIssue(result.generationError || '')
+      setPreview(current => ({
+        ...current,
+        loading: false,
+        disabled: result.previewDisabled,
+        ready: current.failure !== 'runtime' && !result.previewError && (result.ready || (!latestVersion && current.ready)),
+        error: result.previewError || current.error,
+        failure: result.previewError ? (result.previewRepairable ? 'build' : 'network') : current.failure,
+      }))
+
+      if (result.generationError) {
+        finish(latestVersion ? 'A geração ficou incompleta. Os arquivos recebidos continuam disponíveis.' : 'A geração ficou incompleta.')
+      } else if (result.previewError) {
+        finish('Os arquivos foram atualizados. Confira o resultado da compilação no preview.')
+      } else if (!latestVersion) {
+        finish('Nenhum arquivo mudou. Descreva o próximo ajuste que você quer fazer.')
+      } else if (result.repaired) {
+        finish('Corrigi os erros encontrados. Você pode testar a versão e pedir mais ajustes.')
       } else {
-        setMessages(prev => [
-          ...prev.filter(msg => !msg.streaming),
-          {role: 'assistant', content: `Não consegui gerar o projeto: ${err.message}`},
-        ])
+        finish('Arquivos atualizados. Teste a versão e peça os ajustes que precisar.')
       }
+    } catch (error) {
+      const stopped = controller.signal.aborted
+      setIssue(stopped ? 'Geração interrompida.' : error.message)
+      setPreview(current => ({...current, loading: false}))
+      finish(latestVersion ? 'Os arquivos recebidos estão disponíveis no rascunho.' : 'Nenhum arquivo foi recebido nesta tentativa.')
     } finally {
-      setSending(false)
-    }
-  }, [projectName, projectFiles, boilerplate])
-
-  function handleSend() {
-    const text = input.trim()
-    if (!text || sending) return
-    setInput('')
-    processAiResponse(text)
-  }
-
-  function handleKeyDown(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
+      if (generation.current === controller) generation.current = null
+      setPhase('')
     }
   }
 
-  function handleSuggestion(text) {
-    if (sending) return
+  function send(text) {
+    const description = text.trim()
+    if (!description || generation.current || deploying) return
     setInput('')
-    processAiResponse(text)
+    setLastRequest(description)
+    void processAiResponse(description)
   }
 
-  function handleDeleteFile(filePath) {
-    setProjectFiles(prev => prev.filter(f => f.path !== filePath))
-    if (selectedFile === filePath) setSelectedFile(null)
+  function resume() {
+    if (!lastRequest) return
+    const description = 'Continue a partir dos arquivos atuais e preserve o que já funciona. Pedido anterior:\n' + lastRequest.slice(0, 3750)
+    void processAiResponse(description, 'Continuar geração')
   }
+
+  function repair() {
+    const description = [
+      'Corrija o problema abaixo nos arquivos do projeto. Preserve as partes que já funcionam.',
+      lastRequest && 'Pedido mais recente: ' + lastRequest.slice(0, 1700),
+      'Diagnóstico do preview: ' + preview.error.slice(0, 1700),
+    ].filter(Boolean).join('\n\n')
+    void processAiResponse(description, 'Corrigir o preview')
+  }
+
+  function removeFile(path) {
+    const files = projectFiles.filter(file => file.path !== path)
+    setUndo({files: projectFiles, preview})
+    setProjectFiles(files)
+    if (selectedFile === path) setSelectedFile(files[0]?.path)
+    void refreshPreview(files)
+  }
+
+  function restoreDraft() {
+    previewRequest.current?.abort()
+    setProjectFiles(undo.files)
+    setPreview({...undo.preview, loading: false})
+    setSelectedFile(undo.files[0]?.path)
+    setUndo(null)
+    setIssue('')
+    setMessages(current => [...current, {role: 'assistant', content: 'Versão anterior restaurada.'}])
+  }
+
+  const canDeploy = Boolean(projectName.trim() && projectSlug.trim() && projectFiles.length &&
+    (preview.ready || preview.disabled) && !phase && !preview.loading && !deploying)
 
   async function handleDeploy() {
-    if (!projectName.trim() || !projectSlug.trim()) return
-    if (projectFiles.length === 0) return
-
+    if (!canDeploy) return
     setDeploying(true)
     try {
-      // O backend mescla o boilerplate React + shadcn com os arquivos gerados
-      // e publica como projeto Node (build + start via runner). Enviamos o
-      // estado final como operações "update" (o front já aplicou os patches).
-      const operations = projectFiles.map(f => ({op: 'update', path: f.path, content: f.content}))
+      const operations = projectFiles.map(file => ({op: 'update', ...file}))
       const result = await api('/api/ai/deploy', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({name: projectName, slug: projectSlug, operations}),
       })
-      setDeployUrl(result.url)
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: `Projeto publicado com sucesso!\n\nAcesse: ${result.url}\n\nVocê pode gerenciar o projeto na página de Projetos.`,
-        },
-      ])
-      if (onRefresh) onRefresh()
-    } catch (err) {
-      setMessages(prev => [
-        ...prev,
-        {role: 'assistant', content: `Erro ao publicar: ${err.message}`},
-      ])
+      setPublishedUrl(result.url)
+      setMessages(current => [...current, {role: 'assistant', content: 'Projeto publicado na Hostfy.'}])
+      if (onRefresh) await onRefresh()
+    } catch (error) {
+      setMessages(current => [...current, {role: 'assistant', content: 'Falha ao publicar. ' + error.message}])
     } finally {
       setDeploying(false)
     }
   }
 
-  const currentFile = projectFiles.find(f => f.path === selectedFile)
-
+  const sending = Boolean(phase)
   return (
     <div className="ai-builder">
-      {/* ---- Painel esquerdo: Chat ---- */}
       <div className="ai-chat-panel">
         <div className="ai-chat-header">
           <div className="ai-chat-heading">
-            <Label variant="accent">React · shadcn/ui · Lucide · Recharts</Label>
-            <div className="ai-chat-title">
-              <RocketIcon size={16} />
-              <Heading as="h2" sx={{fontSize: 16, m: 0}}>Criar projeto com IA</Heading>
-            </div>
+            <Heading as="h2" sx={{fontSize: 16, m: 0}} className="ai-chat-title">
+              <RocketIcon size={16} /> Criar projeto com IA
+            </Heading>
           </div>
         </div>
 
-        <div className="ai-chat-messages" ref={chatMessagesRef} onScroll={handleChatScroll}>
-          {messages.map((msg, i) => (
-            <ChatMessage key={i} msg={msg} />
-          ))}
-          {sending ? (
-            <div className="ai-msg ai-msg-assistant">
-              <div className="ai-msg-avatar"><SparkleFillIcon size={14} /></div>
-              <div className="ai-msg-content">
-                <div className="ai-msg-thinking">
-                  <Spinner size="small" /> Gerando projeto…
-                </div>
-              </div>
-            </div>
-          ) : null}
+        <div
+          className="ai-chat-messages"
+          ref={chatRef}
+          onScroll={event => {
+            const chat = event.currentTarget
+            stickToBottom.current = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 48
+          }}
+        >
+          {messages.map((message, index) => <ChatMessage key={index} message={message} phase={phase} />)}
         </div>
 
-        {/* Sugestões (só se não há mensagens do usuário) */}
-        {messages.length === 1 ? (
+        {messages.length === 1 && (
           <div className="ai-suggestions">
-            {SUGGESTIONS.map((s, i) => (
-              <button key={i} type="button" className="ai-suggestion" onClick={() => handleSuggestion(s.text)}>
-                <s.icon size={14} />
-                <span>{s.text}</span>
+            {SUGGESTIONS.map(({text, icon: Icon}) => (
+              <button key={text} type="button" className="ai-suggestion" onClick={() => send(text)}>
+                <Icon size={14} />
+                <span>{text}</span>
               </button>
             ))}
           </div>
-        ) : null}
+        )}
 
-        {/* Input */}
+        {issue && !sending && (
+          <div className="ai-generation-issue" role="status">
+            <span>{issue}</span>
+            {lastRequest && <Button size="small" onClick={resume}>Continuar geração</Button>}
+          </div>
+        )}
+
         <div className="ai-chat-input-wrap">
           <div className="ai-chat-input">
             <textarea
               ref={inputRef}
               className="ai-chat-textarea"
-              placeholder="Descreva o projeto que deseja criar…"
+              aria-label="Instruções para o projeto"
+              placeholder={projectFiles.length ? 'Peça um ajuste para o projeto…' : 'Descreva o projeto que deseja criar…'}
               value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
+              onChange={event => setInput(event.target.value)}
+              onKeyDown={event => {
+                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault()
+                  send(input)
+                }
+              }}
               rows={1}
-              disabled={sending}
+              maxLength={4000}
             />
-            <IconButton
-              icon={PaperAirplaneIcon}
-              variant="primary"
-              size="small"
-              aria-label="Enviar"
-              disabled={!input.trim() || sending}
-              onClick={handleSend}
-            />
+            {sending ? (
+              <IconButton
+                icon={StopIcon}
+                variant="default"
+                size="small"
+                aria-label="Parar geração"
+                onClick={() => generation.current?.abort()}
+              />
+            ) : (
+              <IconButton
+                icon={PaperAirplaneIcon}
+                variant="primary"
+                size="small"
+                aria-label="Enviar"
+                disabled={!input.trim() || deploying}
+                onClick={() => send(input)}
+              />
+            )}
           </div>
         </div>
 
-        {/* Deploy bar */}
-        {projectFiles.length > 0 && !deployUrl ? (
+        {projectFiles.length > 0 && !publishedUrl && (
           <div className="ai-deploy-bar">
             <div className="ai-deploy-fields">
               <TextInput
                 size="small"
                 placeholder="Nome do projeto"
                 value={projectName}
-                onChange={e => {
-                  setProjectName(e.target.value)
-                  setProjectSlug(slugify(e.target.value).slice(0, 50))
+                onChange={event => {
+                  setProjectName(event.target.value)
+                  setProjectSlug(slugify(event.target.value).slice(0, 50))
                 }}
               />
               <TextInput
@@ -901,7 +555,7 @@ export default function AiBuilderPage({onRefresh}) {
                 leadingVisual="/"
                 placeholder="slug"
                 value={projectSlug}
-                onChange={e => setProjectSlug(slugify(e.target.value))}
+                onChange={event => setProjectSlug(slugify(event.target.value).slice(0, 50))}
               />
             </div>
             <Button
@@ -909,51 +563,48 @@ export default function AiBuilderPage({onRefresh}) {
               size="small"
               leadingVisual={RocketIcon}
               loading={deploying}
-              disabled={!projectName.trim() || !projectSlug.trim()}
+              disabled={!canDeploy}
               onClick={handleDeploy}
             >
               Publicar na Hostfy
             </Button>
           </div>
-        ) : null}
+        )}
       </div>
 
-      {/* ---- Painel direito: Preview / Arquivos ---- */}
       <div className="ai-right-panel">
         <div className="ai-right-tabs">
-          <button
-            type="button"
-            className={rightTab === 'preview' ? 'active' : ''}
-            onClick={() => setRightTab('preview')}
-          >
+          <button type="button" className={rightTab === 'preview' ? 'active' : ''} onClick={() => setRightTab('preview')}>
             <GlobeIcon size={14} /> Preview
           </button>
-          <button
-            type="button"
-            className={rightTab === 'files' ? 'active' : ''}
-            onClick={() => setRightTab('files')}
-          >
+          <button type="button" className={rightTab === 'files' ? 'active' : ''} onClick={() => setRightTab('files')}>
             <FileDirectoryIcon size={14} /> Arquivos
-            {projectFiles.length > 0 ? (
-              <span className="ai-tab-badge">{projectFiles.length}</span>
-            ) : null}
+            {projectFiles.length > 0 && <span className="ai-tab-badge">{projectFiles.length}</span>}
           </button>
+          {undo && (
+            <button type="button" className="ai-undo-button" disabled={sending || deploying} onClick={restoreDraft}>
+              <UndoIcon size={14} /> Desfazer
+            </button>
+          )}
         </div>
 
         <div className="ai-right-content">
           {rightTab === 'preview' ? (
-            <PreviewPane files={projectFiles} deployUrl={deployUrl} previewUrl={previewReady ? previewUrl : ''} previewError={previewError} previewLoading={previewLoading || (Boolean(previewUrl) && !previewReady)} />
+            <PreviewPane
+              files={projectFiles}
+              preview={preview}
+              phase={phase}
+              publishedUrl={publishedUrl}
+              frameRef={frameRef}
+              onRefresh={() => refreshPreview(projectFiles)}
+              onRepair={repair}
+            />
           ) : (
             <div className="ai-files-panel">
               <div className="ai-files-split">
-                <FileTree
-                  files={projectFiles}
-                  selected={selectedFile}
-                  onSelect={setSelectedFile}
-                  onDelete={handleDeleteFile}
-                />
+                <FileTree files={projectFiles} selected={selectedFile} onSelect={setSelectedFile} onDelete={removeFile} locked={sending || deploying} />
                 <div className="ai-files-code">
-                  <CodeViewer file={currentFile} />
+                  <CodeViewer file={projectFiles.find(file => file.path === selectedFile)} />
                 </div>
               </div>
             </div>
