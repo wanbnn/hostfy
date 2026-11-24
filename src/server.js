@@ -1220,6 +1220,9 @@ app.post('/api/system/prune', requireAuth, requireAdmin, async (req,res) => {
 // ---------------------------------------------------------------------------
 app.use((req, res, next) => {
   if (req.method !== 'GET' || req.path === '/api' || req.path.startsWith('/api/') || path.extname(req.path)) return next();
+  if (req.path === '/ai-builder' || req.path.startsWith('/ai-builder/')) {
+    res.set('Cache-Control', 'private, no-store, no-transform');
+  }
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 

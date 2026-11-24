@@ -21,18 +21,7 @@ const INSTALL_TIMEOUT_MS = Number(process.env.AI_PREVIEW_INSTALL_TIMEOUT_MS || 3
 const BUILD_TIMEOUT_MS = 30000;
 const RETENTION_MS = 24 * 60 * 60 * 1000;
 
-const runtimeReporter = /* html */ [
-  '<script>',
-  'const reportPreviewError = error => window.parent.postMessage({',
-  '  type: "hostfy-preview-error", error: String(error).slice(0, 1000)',
-  '}, "*");',
-  'window.addEventListener("error", event => {',
-  '  if (event.message) reportPreviewError(event.message);',
-  '  else if (event.target instanceof HTMLScriptElement) reportPreviewError("Falha ao carregar o código do preview.");',
-  '}, true);',
-  'window.addEventListener("unhandledrejection", event => reportPreviewError(event.reason));',
-  '</script>',
-].join('\n');
+const RUNTIME_FILE = 'ai-preview-runtime.js';
 
 let installing;
 async function ensureDependencies() {
@@ -99,9 +88,6 @@ async function render(id, files, signal) {
       await fs.mkdir(path.dirname(target), { recursive: true });
       await fs.writeFile(target, file.content);
     }
-    const html = path.join(workspace, 'index.html');
-    const template = await fs.readFile(html, 'utf8');
-    await fs.writeFile(html, template.replace('</head>', () => runtimeReporter + '\n</head>'));
     const output = path.join(workspace, 'dist');
     try {
       const env = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
@@ -138,6 +124,13 @@ async function render(id, files, signal) {
       throw Object.assign(new Error(diagnostic), { status: 422, code: 'PREVIEW_BUILD' });
     }
     signal.throwIfAborted();
+    const index = path.join(output, 'index.html');
+    const html = await fs.readFile(index, 'utf8');
+    const runtimeTag = '<script src="' + url + RUNTIME_FILE + '"></script>\n    ';
+    await Promise.all([
+      fs.copyFile(path.join(__dirname, RUNTIME_FILE), path.join(output, RUNTIME_FILE)),
+      fs.writeFile(index, html.replace(/<script\b(?=[^>]*\btype=["']module["'])/i, match => runtimeTag + match)),
+    ]);
     await fs.mkdir(destination, { recursive: true });
     await fs.rename(output, path.join(destination, revision));
     return { ready: true, url };

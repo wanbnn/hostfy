@@ -49,12 +49,12 @@ async function update(userId, files, { draftId = '', signal } = {}) {
 
 function serve(req, res) {
   if (req.method !== 'GET' && req.method !== 'HEAD') return res.sendStatus(405);
+  res.set('Cache-Control', 'private, no-store, no-transform');
   const target = new URL(BASE);
   target.pathname = req.originalUrl.split('?')[0];
   const transport = target.protocol === 'https:' ? https : http;
   const upstream = transport.request(target, { method: req.method, headers: authentication }, response => {
     const headers = {
-      'Cache-Control': 'private, no-store',
       'Content-Security-Policy': "sandbox allow-scripts allow-forms allow-modals allow-downloads; frame-ancestors 'self'; base-uri 'none'; object-src 'none'",
       'Access-Control-Allow-Origin': '*',
       'Cross-Origin-Resource-Policy': 'cross-origin',

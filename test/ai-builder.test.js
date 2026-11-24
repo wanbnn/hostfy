@@ -7,7 +7,9 @@ const fs = require('node:fs/promises');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
+const vm = require('node:vm');
 const { test } = require('node:test');
+const express = require('express');
 const { applyPatch } = require('../src/ai-patch');
 
 const root = path.resolve(__dirname, '..');
@@ -31,6 +33,40 @@ function endStream(res) {
 test('applyPatch accepts the trailing newline of a unified diff', () => {
   assert.equal(applyPatch('before\nafter\n', '@@ -1,1 +1,1 @@\n-before\n+new\n'), 'new\nafter\n');
   assert.equal(applyPatch('before\nafter\n', '@@ -1,0 +2,1 @@\n+middle\n'), 'before\nmiddle\nafter\n');
+});
+
+test('the preview reports its own JavaScript failures without discarding apps when analytics are blocked', async () => {
+  const base = 'https://panel.example.test/__ai-preview/test/revision/';
+  const runtime = await fs.readFile(path.join(root, 'src/ai-preview-runtime.js'), 'utf8');
+  class Script {
+    constructor(src, type = 'module') { Object.assign(this, { src, type }); }
+  }
+  const handlers = {};
+  const reports = [];
+  vm.runInNewContext(runtime, {
+    URL,
+    HTMLScriptElement: Script,
+    document: { currentScript: { src: base + 'ai-preview-runtime.js' }, baseURI: base },
+    window: {
+      addEventListener(name, listener) { handlers[name] = listener; },
+      parent: { postMessage: report => reports.push({ ...report }) },
+    },
+  });
+
+  handlers.error({ target: new Script('https://static.cloudflareinsights.com/beacon.min.js') });
+  handlers.error({ message: 'Inline script blocked', filename: base });
+  handlers.unhandledrejection({ reason: { message: 'Analytics failed', stack: 'https://static.cloudflareinsights.com/beacon.min.js:1' } });
+  assert.deepEqual(reports, []);
+
+  const entry = base + 'assets/index-test.js';
+  handlers.error({ target: new Script(entry) });
+  handlers.error({ message: 'React runtime error', filename: entry });
+  handlers.unhandledrejection({ reason: { message: 'App rejection', stack: entry + ':1:2' } });
+  assert.deepEqual(reports, [
+    { type: 'hostfy-preview-error', kind: 'load', error: 'Falha ao carregar index-test.js.' },
+    { type: 'hostfy-preview-error', kind: 'runtime', error: 'React runtime error' },
+    { type: 'hostfy-preview-error', kind: 'runtime', error: 'App rejection' },
+  ]);
 });
 
 test('AI Builder publishes revisions before the model finishes and repairs a build failure', { timeout: 45000 }, async t => {
@@ -102,16 +138,32 @@ test('AI Builder publishes revisions before the model finishes and repairs a bui
     AI_PREVIEW_SERVICE_URL: workerBase,
   });
   const { generate } = require('../src/ai-builder');
+  const panel = express();
+  panel.use('/__ai-preview', require('../src/ai-preview-client').serve);
+  const panelServer = http.createServer(panel);
+  const panelBase = 'http://127.0.0.1:' + await listen(panelServer);
+  t.after(async () => {
+    panelServer.closeAllConnections();
+    await new Promise(resolve => panelServer.close(resolve));
+  });
 
   async function readBundle(url) {
-    const headers = { Authorization: 'Bearer test-only' };
-    const page = await fetch(workerBase + url, { headers });
+    const page = await fetch(panelBase + url);
     assert.equal(page.status, 200);
+    assert.match(page.headers.get('cache-control'), /\bno-transform\b/);
+    assert.match(page.headers.get('content-security-policy'), /\bsandbox\b/);
     const html = await page.text();
-    const [source] = html.match(/\/__ai-preview\/[^"]+\.js/);
+    const [, source] = html.match(/type="module"[^>]*src="([^"]+)"/);
+    const runtimePath = url + 'ai-preview-runtime.js';
+    assert.ok(html.indexOf(runtimePath) >= 0 && html.indexOf(runtimePath) < html.indexOf(source));
+    assert.doesNotMatch(html, /<script\s*>/);
+    const runtime = await fetch(panelBase + runtimePath);
+    assert.equal(runtime.status, 200);
+    assert.match(await runtime.text(), /hostfy-preview-error/);
     assert.ok(source.startsWith(url));
-    const asset = await fetch(workerBase + source, { headers });
+    const asset = await fetch(panelBase + source, { headers: { Origin: 'null' } });
     assert.equal(asset.status, 200);
+    assert.equal(asset.headers.get('access-control-allow-origin'), '*');
     return asset.text();
   }
 

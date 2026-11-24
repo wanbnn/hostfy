@@ -118,6 +118,7 @@ function FileTree({files, selected, onSelect, onDelete, locked}) {
 }
 
 function PreviewPane({preview, files, phase, publishedUrl, frameRef, onRefresh, onRepair}) {
+  const canRetry = preview.failure === 'load' || preview.failure === 'network'
   let status = 'Aguardando a primeira versão'
   if (preview.disabled) status = 'Preview desativado'
   else if (preview.loading) status = 'Compilando o preview…'
@@ -158,11 +159,13 @@ function PreviewPane({preview, files, phase, publishedUrl, frameRef, onRefresh, 
       {preview.error && (
         <div className="ai-preview-error">
           <details>
-            <summary>{preview.failure === 'network' ? 'Falha ao atualizar o preview' : 'Esta versão precisa de ajustes'}</summary>
+            <summary>{canRetry ? 'Falha ao carregar o preview' : 'Esta versão precisa de ajustes'}</summary>
             <pre>{preview.error}</pre>
           </details>
-          {!phase && preview.failure !== 'network' && (
-            <Button size="small" onClick={onRepair}>Corrigir com IA</Button>
+          {!phase && !preview.loading && (
+            <Button size="small" onClick={canRetry ? onRefresh : onRepair}>
+              {canRetry ? 'Tentar novamente' : 'Corrigir com IA'}
+            </Button>
           )}
         </div>
       )}
@@ -247,13 +250,14 @@ export default function AiBuilderPage({onRefresh}) {
           event.data?.type !== 'hostfy-preview-error' || typeof event.data.error !== 'string') return
       const failedUrl = frame.getAttribute('src')
       const error = event.data.error.slice(0, 1000)
+      const failure = event.data.kind === 'load' ? 'load' : 'runtime'
       setPreview(current => current.url === failedUrl ? {
         ...current,
         url: current.previousUrl,
         previousUrl: '',
         ready: false,
         error,
-        failure: 'runtime',
+        failure,
       } : current)
     }
     window.addEventListener('message', reportError)
@@ -367,7 +371,7 @@ export default function AiBuilderPage({onRefresh}) {
         ...current,
         loading: false,
         disabled: result.previewDisabled,
-        ready: current.failure !== 'runtime' && !result.previewError && (result.ready || (!latestVersion && current.ready)),
+        ready: Boolean(current.url) && !current.error && !result.previewError && (result.ready || (!latestVersion && current.ready)),
         error: result.previewError || current.error,
         failure: result.previewError ? (result.previewRepairable ? 'build' : 'network') : current.failure,
       }))
