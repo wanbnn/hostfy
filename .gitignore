@@ -22,6 +22,7 @@ yarn-error.log*
 # Runtime / uploads
 uploads/
 *.zip
+data/
 
 # OS
 .DS_Store
