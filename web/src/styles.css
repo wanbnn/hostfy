@@ -62,12 +62,37 @@ a.brand:active {
   letter-spacing: -0.5px;
 }
 
+.brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-mark {
+  display: block;
+  width: 24px;
+  height: 27px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.brand-wordmark {
+  white-space: nowrap;
+}
+
 /* Wordmark grande da tela de autenticação */
 .auth-wordmark {
+  display: flex;
+  justify-content: center;
   font-size: 40px;
   letter-spacing: -1.5px;
   color: var(--fgColor-default);
   margin-bottom: 16px;
+}
+
+.auth-wordmark .brand-mark {
+  width: 38px;
+  height: 42px;
 }
 
 /* Layout base */

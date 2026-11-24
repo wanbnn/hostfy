@@ -16,9 +16,12 @@ import {fmtRelative} from '../ui.jsx'
 
 export function Wordmark({className}) {
   return (
-    <span className={className}>
-      <span style={{fontWeight: 550}}>Host</span>
-      <span style={{fontWeight: 900}}>fy.</span>
+    <span className={`brand-lockup ${className || ''}`}>
+      <img className="brand-mark" src="/assets/dark_palm.svg" alt="" aria-hidden="true" />
+      <span className="brand-wordmark">
+        <span style={{fontWeight: 550}}>Host</span>
+        <span style={{fontWeight: 900}}>fy.</span>
+      </span>
     </span>
   )
 }
