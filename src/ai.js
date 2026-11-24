@@ -46,13 +46,13 @@ OPERAÇÕES DISPONÍVEIS (escolha a mais econômica):
 
 REGRAS:
 1. Gere SOMENTE arquivos de aplicação. O ponto de entrada é src/App.tsx.
-2. Use imports com o alias "@/..." (ex.: import { Button } from '@/components/ui/button').
-3. Use TypeScript (.tsx/.ts). Não crie package.json, configs ou componentes em src/components/ui.
-4. Se precisar de um componente shadcn que não está na lista, implemente-o em src/components/ (não em ui/).
-5. Use Tailwind para estilos e lucide-react para ícones. Use recharts quando o usuário pedir gráficos.
-6. Código completo e funcional, sem placeholders como "// TODO" ou "...".
-7. Ao editar um arquivo existente, use "patch" (diff) em vez de reescrevê-lo inteiro.
-8. Responda APENAS com um objeto JSON válido, sem texto ao redor, no formato:
+3. Use imports com o alias "@/..." (ex.: import { Button } from '@/components/ui/button').
+4. Use TypeScript (.tsx/.ts). Não crie package.json, configs ou componentes em src/components/ui.
+5. Se precisar de um componente shadcn que não está na lista, implemente-o em src/components/ (não em ui/).
+6. Use Tailwind para estilos e lucide-react para ícones. Use recharts quando o usuário pedir gráficos.
+7. Código completo e funcional, sem placeholders como "// TODO" ou "...".
+8. Ao editar um arquivo existente, use "patch" (diff) em vez de reescrevê-lo inteiro.
+9. Responda APENAS com um objeto JSON válido, sem texto ao redor, no formato:
 {"operations":[
   {"op":"create","path":"src/components/Header.tsx","content":"<código completo>"},
   {"op":"update","path":"src/App.tsx","content":"<código completo>"},
@@ -104,7 +104,7 @@ function extractJson(text) {
 
 function safeRel(input) {
   const rel = String(input || '').replace(/\\/g, '/').replace(/^\.?\//, '').trim();
-  if (!rel || rel.includes('..') || rel.includes('\0') || rel.includes(':')) return null;
+  if (!rel || rel.split('/').some(segment => segment === '..' || segment === '.') || rel.includes('\0') || rel.includes(':')) return null;
   return rel;
 }
 
@@ -140,7 +140,7 @@ function normalizeOperations(raw) {
   return out;
 }
 
-async function generate({ description, existingFiles = [] }) {
+async function requestCompletion({ description, existingFiles = [], onContent }) {
   if (!enabled()) throw new Error('Geração por IA não está configurada (AI_API_KEY ausente).');
 
   const controller = new AbortController();
@@ -156,7 +156,8 @@ async function generate({ description, existingFiles = [] }) {
       body: JSON.stringify({
         model: DEFAULT_MODEL,
         temperature: Number(process.env.AI_TEMPERATURE || 0.3),
-        response_format: { type: 'json_object' },
+        ...(onContent ? {} : { response_format: { type: 'json_object' } }),
+        stream: Boolean(onContent),
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: buildUserPrompt(description, existingFiles) },
@@ -171,15 +172,57 @@ async function generate({ description, existingFiles = [] }) {
     clearTimeout(timer);
   }
 
-  const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
     const detail = data?.error?.message || `HTTP ${response.status}`;
     throw new Error(`Provedor de IA respondeu com erro: ${detail}`);
   }
 
+  if (onContent) {
+    if (!response.body) throw new Error('O provedor não iniciou a resposta em streaming.');
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let content = '';
+    const consume = (line) => {
+      const value = line.trim();
+      if (!value.startsWith('data:')) return;
+      const payload = value.slice(5).trim();
+      if (!payload || payload === '[DONE]') return;
+      let event;
+      try { event = JSON.parse(payload); } catch { return; }
+      if (event.error?.message) throw new Error(event.error.message);
+      const token = event.choices?.[0]?.delta?.content;
+      if (typeof token === 'string' && token) {
+        content += token;
+        onContent(token);
+      }
+    };
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() || '';
+        for (const line of lines) consume(line);
+        if (done) break;
+      }
+      if (buffer) consume(buffer);
+    } finally {
+      reader.releaseLock();
+    }
+    if (!content) throw new Error('Resposta vazia do provedor de IA.');
+    return content;
+  }
+
+  const data = await response.json().catch(() => ({}));
   const content = data?.choices?.[0]?.message?.content;
   if (!content) throw new Error('Resposta vazia do provedor de IA.');
+  return content;
+}
 
+async function generate({ description, existingFiles = [], onContent }) {
+  const content = await requestCompletion({ description, existingFiles, onContent });
   return normalizeOperations(extractJson(content));
 }
 

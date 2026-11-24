@@ -17,10 +17,13 @@ const projectDb = require('./project-db');
 const files = require('./files');
 const ai = require('./ai');
 const aiTemplate = require('./ai-template');
+const aiPreview = require('./ai-preview-client');
 const { encrypt, decrypt } = require('./secrets');
 
 const app = express();
 const PORT = Number(process.env.PORT || 1591);
+const AI_PREVIEW_MOUNT = '/__ai-preview';
+const AI_PREVIEW_UPSTREAM = `http://${process.env.AI_PREVIEW_HOST || '127.0.0.1'}:${Number(process.env.AI_PREVIEW_PORT || 1595)}`;
 const STORAGE = process.env.STORAGE_DIR || path.join(__dirname, '..', 'data', 'projects');
 const MAX_MB = Number(process.env.MAX_UPLOAD_MB || 100);
 const ADMIN_EMAILS = String(process.env.ADMIN_EMAILS || '')
@@ -40,10 +43,49 @@ app.use(helmet({ contentSecurityPolicy: { directives: {
 // O corpo do painel é pequeno; só a edição de arquivos aceita payloads maiores.
 const jsonSmall = express.json({ limit: '128kb' });
 const jsonLarge = express.json({ limit: '4mb' });
-app.use((req, res, next) => (req.path.endsWith('/files/content') ? jsonLarge : jsonSmall)(req, res, next));
+app.use((req, res, next) => (req.path.endsWith('/files/content') || req.path === '/ai/generate' ? jsonLarge : jsonSmall)(req, res, next));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use('/api', rateLimit({ windowMs: 15 * 60 * 1000, limit: 600, standardHeaders: true, legacyHeaders: false }));
+// O proxy same-origin mantÃ©m o preview e o HMR funcionando atrÃ¡s de HTTPS sem
+// expor a porta efÃªmera de cada servidor Vite.
+app.use(AI_PREVIEW_MOUNT, (req, res) => {
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  const previewPath = req.url === '/' ? '/' : req.url;
+  const target = new URL(previewPath, AI_PREVIEW_UPSTREAM);
+  const headers = { ...req.headers, host: target.host };
+  headers['x-hostfy-session'] = req.path.split('/')[1];
+  headers['x-forwarded-proto'] = req.headers['x-forwarded-proto'] || req.protocol;
+  if (req.headers.host) headers['x-forwarded-host'] = req.headers.host;
+  headers['x-forwarded-proto'] = req.headers['x-forwarded-proto'] || req.protocol;
+  delete headers.connection;
+  if (req.headers.origin === `http://${req.headers.host}` || req.headers.origin === `https://${req.headers.host}`) delete headers.origin;
+  const upstream = require('http').request({ hostname: target.hostname, port: target.port, path: target.pathname + target.search, method: req.method, headers }, upstreamRes => {
+    res.writeHead(upstreamRes.statusCode || 502, upstreamRes.headers);
+    upstreamRes.pipe(res);
+  });
+  upstream.on('error', () => { if (!res.headersSent) res.status(502); res.end('Preview indisponÃ­vel.'); });
+  req.pipe(upstream);
+});
+const appServer = require('http').createServer(app);
+appServer.on('upgrade', (req, socket, head) => {
+  const isHmr = req.url.startsWith('/__ai-preview-hmr');
+  if (!isHmr && !req.url.startsWith(`${AI_PREVIEW_MOUNT}/`)) return socket.destroy();
+  const targetPath = isHmr ? req.url : req.url.slice(AI_PREVIEW_MOUNT.length);
+  const headers = { ...req.headers, host: `127.0.0.1:${Number(process.env.AI_PREVIEW_PORT || 1595)}` };
+  if (!isHmr) headers['x-hostfy-session'] = targetPath.split('/')[1];
+  const upstream = require('net').connect(Number(process.env.AI_PREVIEW_PORT || 1595), process.env.AI_PREVIEW_HOST || '127.0.0.1', () => {
+    let raw = `${req.method} ${targetPath} HTTP/1.1\r\n`;
+    for (const [name, value] of Object.entries(headers)) raw += `${name}: ${value}\r\n`;
+    raw += '\r\n';
+    upstream.write(raw);
+    if (head?.length) upstream.write(head);
+    upstream.pipe(socket);
+    socket.pipe(upstream);
+  });
+  upstream.on('error', () => socket.destroy());
+  socket.on('error', () => upstream.destroy());
+});
 
 const emailOk = s => typeof s === 'string' && s.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 // O sufixo pode vir como "@dominio.com" ou "dominio.com".
@@ -394,11 +436,40 @@ app.post('/api/projects', requireAuth, upload.single('project'), async (req,res)
               .filter(f => f.path)
         : [];
 
+        const wantsStream = req.get('accept')?.includes('text/event-stream') || req.body?.stream === true;
+        if (wantsStream) {
+          res.status(200).set({
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            Connection: 'keep-alive',
+            'X-Accel-Buffering': 'no',
+          });
+          res.flushHeaders?.();
+          const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+          try {
+            const operations = await ai.generate({ description, existingFiles, onContent: token => send('token', { token }) });
+            send('complete', { operations, model: ai.DEFAULT_MODEL });
+            return res.end();
+          } catch (error) {
+            send('error', { error: error.message || 'Falha ao gerar o projeto.' });
+            return res.end();
+          }
+        }
         const operations = await ai.generate({ description, existingFiles });
         res.json({ operations, model: ai.DEFAULT_MODEL });
     } catch (e) {
       console.error(e);
       res.status(502).json({ error: e.message || 'Falha ao gerar o projeto.' });
+    }
+  });
+
+  app.post('/api/ai/preview', requireAuth, async (req, res) => {
+    try {
+      const files = Array.isArray(req.body?.files) ? req.body.files.slice(0, 200) : [];
+      const result = await aiPreview.update(String(req.user.sub), files);
+      res.json(result);
+    } catch (e) {
+      res.status(502).json({ error: e.message || 'Falha ao atualizar o preview.' });
     }
   });
 
@@ -1157,7 +1228,19 @@ app.use((err,req,res,next) => {
 (async () => {
   await fs.mkdir(STORAGE, { recursive: true });
   await initDb();
-  const server = app.listen(PORT, () => console.log(`Hostfy app listening on ${PORT}`));
+  const server = appServer.listen(PORT, () => console.log(`Hostfy app listening on ${PORT}`));
+  const previewEntry = path.join(__dirname, 'ai-preview.js');
+  if (process.env.AI_PREVIEW_ENABLED !== 'false' && process.env.AI_PREVIEW_SERVICE !== 'external') {
+    const { spawn } = require('child_process');
+    const preview = spawn(process.execPath, [previewEntry], {
+      cwd: path.join(__dirname, '..'),
+      env: process.env,
+      stdio: 'inherit',
+      windowsHide: true,
+    });
+    preview.on('error', error => console.error(`[ai-preview] falha ao iniciar: ${error.message}`));
+    server.on('close', () => preview.kill());
+  }
   // Deploys de Docker Compose podem levar vários minutos (build).
   server.requestTimeout = 0;
   server.headersTimeout = 60 * 60 * 1000;

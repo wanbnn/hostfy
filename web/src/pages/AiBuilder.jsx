@@ -29,12 +29,34 @@ import {
 import {api} from '../api.js'
 import {useRouter} from '../router.jsx'
 
+const PREVIEW_TEMPLATE_FILES = [
+  ['package.json', '/__ai-template/package.json'],
+  ['vite.config.ts', '/__ai-template/vite.config.ts'],
+  ['tsconfig.json', '/__ai-template/tsconfig.json'],
+  ['tailwind.config.js', '/__ai-template/tailwind.config.js'],
+  ['postcss.config.js', '/__ai-template/postcss.config.js'],
+  ['index.html', '/__ai-template/index.html'],
+  ['server.js', '/__ai-template/server.js'],
+  ['src/main.tsx', '/__ai-template/src/main.tsx'],
+  ['src/index.css', '/__ai-template/src/index.css'],
+  ['src/lib/utils.ts', '/__ai-template/src/lib/utils.ts'],
+]
+
+async function readTemplateFiles() {
+  const files = await Promise.all(PREVIEW_TEMPLATE_FILES.map(async ([path, url]) => {
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`Não foi possível carregar o boilerplate (${path}).`)
+    return {path, content: await response.text()}
+  }))
+  return files
+}
+
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
 function slugify(v) {
-  return v.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/--+/g, '-')
+  return v.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
 }
 
 function fileIcon(name) {
@@ -228,29 +250,28 @@ function FileTree({files, selected, onSelect, onDelete}) {
 /* Preview iframe                                                      */
 /* ------------------------------------------------------------------ */
 
-function PreviewPane({files, deployUrl}) {
-  // O projeto é React + Vite: o preview real só existe depois do build, que
-  // acontece no deploy. Antes disso mostramos um resumo do que foi gerado.
-  if (deployUrl) {
+function PreviewPane({files, deployUrl, previewUrl, previewError, previewLoading}) {
+  const activeUrl = deployUrl || previewUrl
+  if (activeUrl) {
     return (
       <div className="ai-preview-wrap">
         <div className="ai-preview-toolbar">
           <div className="ai-preview-url">
             <GlobeIcon size={14} />
-            <span>{deployUrl}</span>
+            <span>{activeUrl}</span>
           </div>
           <IconButton
             icon={SyncIcon}
             variant="invisible"
             size="small"
             aria-label="Abrir em nova aba"
-            onClick={() => window.open(deployUrl, '_blank', 'noopener')}
+            onClick={() => window.open(activeUrl, '_blank', 'noopener')}
           />
         </div>
         <iframe
           className="ai-preview-frame"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-          src={deployUrl}
+          src={activeUrl}
+          key={activeUrl}
           title="Preview do projeto"
         />
       </div>
@@ -262,15 +283,15 @@ function PreviewPane({files, deployUrl}) {
       <div className="ai-preview-toolbar">
         <div className="ai-preview-url">
           <GlobeIcon size={14} />
-          <span>preview://aguardando publicação</span>
+          <span>preview://{previewLoading ? 'iniciando' : 'aguardando'}</span>
         </div>
       </div>
       <div className="ai-preview-placeholder">
         <GlobeIcon size={28} />
         <Text className="muted">
-          {files.length === 0
+          {previewError || (files.length === 0
             ? 'Descreva o projeto no chat para gerar os arquivos.'
-            : 'O preview aparece aqui depois de publicar. O projeto é React + Vite e precisa de build.'}
+            : previewLoading ? 'Atualizando o preview…' : 'Preparando o preview ao vivo…')}
         </Text>
       </div>
     </div>
@@ -319,7 +340,7 @@ const SUGGESTIONS = [
 /* ------------------------------------------------------------------ */
 
 export default function AiBuilderPage({onRefresh}) {
-  const {navigate} = useRouter()
+  useRouter()
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
@@ -335,6 +356,12 @@ export default function AiBuilderPage({onRefresh}) {
   const [projectSlug, setProjectSlug] = useState('')
   const [deploying, setDeploying] = useState(false)
   const [deployUrl, setDeployUrl] = useState('')
+  const [previewUrl, setPreviewUrl] = useState('')
+  const [previewReady, setPreviewReady] = useState(false)
+  const [previewError, setPreviewError] = useState('')
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [boilerplate, setBoilerplate] = useState([])
+  const previewSession = useRef(0)
   const chatEndRef = useRef(null)
   const inputRef = useRef(null)
 
@@ -348,6 +375,51 @@ export default function AiBuilderPage({onRefresh}) {
     inputRef.current?.focus()
   }, [])
 
+  useEffect(() => {
+    let active = true
+    readTemplateFiles().then(files => { if (active) setBoilerplate(files) })
+      .catch(error => { if (active) setPreviewError(error.message) })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    if (!boilerplate.length) return
+    const timer = setTimeout(async () => {
+      const version = ++previewSession.current
+      setPreviewLoading(true)
+      setPreviewError('')
+      try {
+        const map = new Map(boilerplate.map(file => [file.path, file.content]))
+        for (const file of projectFiles) map.set(file.path, file.content)
+        const result = await api('/api/ai/preview', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({files: [...map].map(([path, content]) => ({path, content}))}),
+        })
+        if (version === previewSession.current) {
+          setPreviewReady(current => current || Boolean(result.ready))
+          setPreviewUrl(result.url)
+        }
+      } catch (error) {
+        if (version === previewSession.current) setPreviewError(error.message)
+      } finally {
+        if (version === previewSession.current) setPreviewLoading(false)
+      }
+    }, projectFiles.length ? 700 : 0)
+    return () => clearTimeout(timer)
+  }, [boilerplate, projectFiles])
+
+  useEffect(() => {
+    if (previewReady || !previewUrl) return
+    const timer = setInterval(async () => {
+      try {
+        const response = await fetch(previewUrl, {credentials: 'same-origin'})
+        if (response.ok) setPreviewReady(true)
+      } catch {}
+    }, 1500)
+    return () => clearInterval(timer)
+  }, [previewReady, previewUrl])
+
   // Chama o backend, que consulta o LLM e devolve operações (create/update/patch).
   // O boilerplate (package.json, configs, componentes shadcn) é mesclado no
   // deploy, então aqui só lidamos com os arquivos gerados pela IA.
@@ -356,20 +428,59 @@ export default function AiBuilderPage({onRefresh}) {
     setSending(true)
 
     try {
-      // Envia o conteúdo atual para o modelo poder editar via patch (diff).
+      // Envia o boilerplate e o conteúdo atual para o modelo editar via patch.
       const existingFiles = projectFiles.map(f => ({path: f.path, content: f.content}))
-      const result = await api('/api/ai/generate', {
+      const templateFiles = projectFiles.length ? [] : boilerplate.filter(file => file.path.startsWith('src/'))
+      const response = await fetch('/api/ai/generate', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({description: userMessage, existingFiles}),
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json', Accept: 'text/event-stream'},
+        body: JSON.stringify({description: userMessage, existingFiles: [...templateFiles, ...existingFiles], stream: true}),
       })
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}))
+        throw new Error(error.error || 'Não foi possível gerar o projeto.')
+      }
 
-      const operations = result.operations || []
-      const {files: nextFiles, summary} = applyOperations(projectFiles, operations)
+      let streamBuffer = ''
+      let pendingOperations = null
+      let streamError = null
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      const handleEvent = raw => {
+        const lines = raw.split(/\r?\n/)
+        const event = lines.find(line => line.startsWith('event:'))?.slice(6).trim()
+        const dataLine = lines.find(line => line.startsWith('data:'))
+        if (!dataLine) return
+        const data = JSON.parse(dataLine.slice(5).trim())
+        if (event === 'token') {
+          setMessages(prev => {
+            const last = prev[prev.length - 1]
+            if (last?.streaming) return [...prev.slice(0, -1), {...last, content: last.content + data.token}]
+            return [...prev, {role: 'assistant', content: data.token, streaming: true}]
+          })
+        } else if (event === 'complete') pendingOperations = data.operations || []
+        else if (event === 'error') streamError = data.error
+      }
+      while (true) {
+        const {value, done} = await reader.read()
+        streamBuffer += decoder.decode(value || new Uint8Array(), {stream: !done})
+        const events = streamBuffer.split(/\r?\n\r?\n/)
+        streamBuffer = events.pop() || ''
+        events.forEach(handleEvent)
+        if (done) break
+      }
+      if (streamBuffer.trim()) handleEvent(streamBuffer)
+      if (streamError) throw new Error(streamError)
+      const operations = pendingOperations || []
+      const baseFiles = projectFiles.length ? projectFiles : boilerplate.filter(file => file.path.startsWith('src/'))
+      const {files: nextFiles, summary} = applyOperations(baseFiles, operations)
+      if (!operations.some(operation => operation.path === 'src/App.tsx') && !projectFiles.length)
+        throw new Error('A IA nÃ£o gerou src/App.tsx para substituir a tela inicial. Tente enviar o pedido novamente.')
       setProjectFiles(nextFiles)
 
       setMessages(prev => [
-        ...prev,
+        ...prev.filter(msg => !msg.streaming),
         {
           role: 'assistant',
           content: `Pronto! ${summary}\n\nO projeto usa React + shadcn/ui + Lucide + Recharts. Veja o código na aba "Arquivos". Quando estiver satisfeito, preencha o nome/slug e clique em "Publicar na Hostfy".`,
@@ -391,7 +502,7 @@ export default function AiBuilderPage({onRefresh}) {
     } finally {
       setSending(false)
     }
-  }, [projectName, projectFiles])
+  }, [projectName, projectFiles, boilerplate])
 
   function handleSend() {
     const text = input.trim()
@@ -580,7 +691,7 @@ export default function AiBuilderPage({onRefresh}) {
 
         <div className="ai-right-content">
           {rightTab === 'preview' ? (
-            <PreviewPane files={projectFiles} deployUrl={deployUrl} />
+            <PreviewPane files={projectFiles} deployUrl={deployUrl} previewUrl={previewReady ? previewUrl : ''} previewError={previewError} previewLoading={previewLoading || (Boolean(previewUrl) && !previewReady)} />
           ) : (
             <div className="ai-files-panel">
               <div className="ai-files-split">
