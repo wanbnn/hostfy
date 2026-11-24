@@ -37,13 +37,10 @@ services:
       AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-240000}
       AI_MAX_FILES: ${AI_MAX_FILES:-40}
       AI_MAX_FILE_BYTES: ${AI_MAX_FILE_BYTES:-5000000}
-      # Preview ao vivo do AI Builder (serviço interno na porta 1595).
-      # AI_PREVIEW_PUBLIC_URL deve ser a origem pública do painel (ex.:
-      # https://app.seudominio.com) para o preview funcionar atrás do proxy.
+      # Preview ao vivo do AI Builder, servido pelo proxy same-origin do painel.
       AI_PREVIEW_ENABLED: ${AI_PREVIEW_ENABLED:-true}
       AI_PREVIEW_PORT: ${AI_PREVIEW_PORT:-1595}
       AI_PREVIEW_HOST: ${AI_PREVIEW_HOST:-0.0.0.0}
-      AI_PREVIEW_PUBLIC_URL: ${AI_PREVIEW_PUBLIC_URL:-}
       AI_PREVIEW_DIR: ${AI_PREVIEW_DIR:-}
       AI_PREVIEW_TOKEN: ${AI_PREVIEW_TOKEN:-}
       AI_PREVIEW_ORIGINS: ${AI_PREVIEW_ORIGINS:-}

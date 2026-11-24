@@ -11,7 +11,6 @@ const ROOT = path.join(__dirname, '..');
 const TEMPLATE = path.join(ROOT, 'templates', 'react-shadcn');
 const PORT = Number(process.env.AI_PREVIEW_PORT || 1595);
 const HOST = process.env.AI_PREVIEW_HOST || '0.0.0.0';
-const PUBLIC_URL = String(process.env.AI_PREVIEW_PUBLIC_URL || '').replace(/\/$/, '');
 const TOKEN = String(process.env.AI_PREVIEW_TOKEN || '');
 const STORAGE = path.resolve(process.env.AI_PREVIEW_DIR || path.join(ROOT, 'data', 'ai-previews'));
 const ALLOWED_ORIGINS = String(process.env.AI_PREVIEW_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean);
@@ -40,14 +39,6 @@ function readBody(req) {
 function respond(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(body));
-}
-
-function publicHostAllowed(host) {
-  if (!PUBLIC_URL) return true;
-  const configured = new URL(PUBLIC_URL).host.toLowerCase();
-  const incoming = String(host || '').toLowerCase();
-  const hosts = new Set([configured, 'localhost', '127.0.0.1', '::1']);
-  return hosts.has(incoming);
 }
 
 function setPreviewHeaders(req, res) {
@@ -257,15 +248,9 @@ const server = http.createServer(async (req, res) => {
       const id = String(body.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80);
       if (!id) return respond(res, 400, { error: 'Identificador do preview invÃ¡lido.' });
       const session = await startSession(id, body.files);
-      // O painel acessa o preview pelo proxy same-origin (/__ai-preview). O host
-      // público vem de x-forwarded-host (enviado pelo proxy) ou do Host da
-      // requisição. AI_PREVIEW_PUBLIC_URL só é usado como último recurso, pois
-      // costuma apontar para o endereço interno do serviço (127.0.0.1:1595).
-      const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
-      const host = forwardedHost || req.headers.host;
-      const protocol = req.headers['x-forwarded-proto'] || (PUBLIC_URL ? new URL(PUBLIC_URL).protocol.slice(0, -1) : 'http');
-      const publicBase = host ? `${protocol}://${host}` : PUBLIC_URL;
-      return respond(res, 200, { url: `${publicBase}/__ai-preview/${id}/?session=${id}`, port: session.port });
+      // O navegador sempre acessa o painel pelo proxy same-origin. Devolver
+      // apenas o caminho evita expor endereços internos e funciona com qualquer domínio/HTTPS.
+      return respond(res, 200, { url: `/__ai-preview/${id}/?session=${id}`, port: session.port });
     }
     if (req.method === 'POST' && url.pathname.startsWith('/sessions/')) {
       const match = url.pathname.match(/^\/sessions\/([a-zA-Z0-9_-]+)\/files$/);

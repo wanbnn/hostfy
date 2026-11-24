@@ -202,6 +202,121 @@ function applyOperations(currentFiles, operations) {
   return {files, summary}
 }
 
+function createOperationStreamParser() {
+  let text = ''
+  let searchFrom = 0
+  let cursor = 0
+  let operationStart = -1
+  let arrayDone = false
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  function decodeString(value) {
+    try { return JSON.parse(`"${value}"`) } catch { return value }
+  }
+
+  function pendingOperation() {
+    if (operationStart < 0) return null
+    const partial = text.slice(operationStart, operationStart + 512)
+    const action = partial.match(/"op"\s*:\s*"((?:\\.|[^"\\])*)"/)
+    const filePath = partial.match(/"path"\s*:\s*"((?:\\.|[^"\\])*)"/)
+    if (!filePath) return null
+    return {
+      op: action ? decodeString(action[1]) : 'update',
+      path: decodeString(filePath[1]),
+      pending: true,
+    }
+  }
+
+  return {
+    push(chunk) {
+      text += String(chunk || '')
+      const completed = []
+
+      if (cursor === 0) {
+        const keyPattern = /"(?:operations|files)"\s*:\s*\[/g
+        keyPattern.lastIndex = searchFrom
+        const match = keyPattern.exec(text)
+        if (!match) {
+          searchFrom = Math.max(0, text.length - 32)
+          return completed
+        }
+        cursor = keyPattern.lastIndex
+      }
+
+      if (arrayDone) return completed
+
+      while (cursor < text.length) {
+        const char = text[cursor]
+        if (operationStart < 0) {
+          if (char === ']') {
+            arrayDone = true
+            cursor++
+            break
+          }
+          if (char === '{') {
+            operationStart = cursor
+            depth = 1
+            inString = false
+            escaped = false
+          }
+          cursor++
+          continue
+        }
+
+        if (inString) {
+          if (escaped) escaped = false
+          else if (char === '\\') escaped = true
+          else if (char === '"') inString = false
+          cursor++
+          continue
+        }
+
+        if (char === '"') inString = true
+        else if (char === '{') depth++
+        else if (char === '}') {
+          depth--
+          if (depth === 0) {
+            try { completed.push(JSON.parse(text.slice(operationStart, cursor + 1))) } catch {}
+            operationStart = -1
+          }
+        }
+        cursor++
+      }
+
+      return completed
+    },
+    pending: pendingOperation,
+  }
+}
+
+function sameOriginPreviewUrl(value) {
+  try {
+    const url = new URL(value, window.location.origin)
+    if (url.pathname.startsWith('/__ai-preview/')) return `${url.pathname}${url.search}${url.hash}`
+  } catch {}
+  return value
+}
+
+function OperationCard({operation}) {
+  const labels = {create: 'Criando arquivo', update: 'Atualizando arquivo', patch: 'Aplicando alterações'}
+  const body = String(operation.content ?? operation.patch ?? '')
+  const preview = body.slice(0, 220)
+  return (
+    <div className={`ai-operation-card ${operation.pending ? 'pending' : ''}`}>
+      <div className="ai-operation-heading">
+        <span>{labels[operation.op] || 'Arquivo'}</span>
+        {operation.pending ? <span className="ai-operation-status">gerando…</span> : null}
+      </div>
+      <code className="ai-operation-path">{operation.path}</code>
+      {!operation.pending && preview ? (
+        <pre className="ai-operation-preview">{preview}{body.length > preview.length ? '…' : ''}</pre>
+      ) : null}
+    </div>
+  )
+}
+
 /* ------------------------------------------------------------------ */
 /* Mensagens do chat                                                   */
 /* ------------------------------------------------------------------ */
@@ -223,7 +338,16 @@ function ChatMessage({msg}) {
             ))}
           </div>
         ) : null}
-        <div className="ai-msg-text">{msg.content}</div>
+        {msg.content ? <div className="ai-msg-text">{msg.content}</div> : null}
+        {msg.operations?.length ? (
+          <div className="ai-msg-operations">
+            {msg.operations.map((operation, index) => <OperationCard key={`${operation.path}-${index}`} operation={operation} />)}
+          </div>
+        ) : null}
+        {msg.pendingOperation ? <OperationCard operation={msg.pendingOperation} /> : null}
+        {msg.streaming && !msg.operations?.length && !msg.pendingOperation ? (
+          <div className="ai-msg-stream-status">Recebendo a estrutura dos arquivos…</div>
+        ) : null}
       </div>
     </div>
   )
@@ -403,13 +527,21 @@ export default function AiBuilderPage({onRefresh}) {
   const [previewLoading, setPreviewLoading] = useState(false)
   const [boilerplate, setBoilerplate] = useState([])
   const previewSession = useRef(0)
-  const chatEndRef = useRef(null)
+  const chatMessagesRef = useRef(null)
+  const stickToBottomRef = useRef(true)
   const inputRef = useRef(null)
 
-  // Auto-scroll do chat
+  // Mantém a rolagem no fim enquanto a pessoa não tiver subido para ler mensagens anteriores.
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({behavior: 'smooth'})
+    const container = chatMessagesRef.current
+    if (container && stickToBottomRef.current) container.scrollTop = container.scrollHeight
   }, [messages])
+
+  const handleChatScroll = useCallback(() => {
+    const container = chatMessagesRef.current
+    if (!container) return
+    stickToBottomRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 48
+  }, [])
 
   // Foca o input ao montar
   useEffect(() => {
@@ -438,7 +570,7 @@ export default function AiBuilderPage({onRefresh}) {
         })
         if (version === previewSession.current) {
           setPreviewReady(current => current || Boolean(result.ready))
-          setPreviewUrl(result.url)
+          setPreviewUrl(sameOriginPreviewUrl(result.url))
         }
       } catch (error) {
         if (version === previewSession.current) setPreviewError(error.message)
@@ -464,6 +596,7 @@ export default function AiBuilderPage({onRefresh}) {
   // O boilerplate (package.json, configs, componentes shadcn) é mesclado no
   // deploy, então aqui só lidamos com os arquivos gerados pela IA.
   const processAiResponse = useCallback(async (userMessage) => {
+    stickToBottomRef.current = true
     setMessages(prev => [...prev, {role: 'user', content: userMessage}])
     setSending(true)
 
@@ -485,6 +618,7 @@ export default function AiBuilderPage({onRefresh}) {
       let streamBuffer = ''
       let pendingOperations = null
       let streamError = null
+      const operationParser = createOperationStreamParser()
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       const handleEvent = raw => {
@@ -494,10 +628,16 @@ export default function AiBuilderPage({onRefresh}) {
         if (!dataLine) return
         const data = JSON.parse(dataLine.slice(5).trim())
         if (event === 'token') {
+          const operations = operationParser.push(data.token)
+          const pendingOperation = operationParser.pending()
           setMessages(prev => {
             const last = prev[prev.length - 1]
-            if (last?.streaming) return [...prev.slice(0, -1), {...last, content: last.content + data.token}]
-            return [...prev, {role: 'assistant', content: data.token, streaming: true}]
+            if (last?.streaming) return [...prev.slice(0, -1), {
+              ...last,
+              operations: [...(last.operations || []), ...operations],
+              pendingOperation,
+            }]
+            return [...prev, {role: 'assistant', streaming: true, operations, pendingOperation}]
           })
         } else if (event === 'complete') pendingOperations = data.operations || []
         else if (event === 'error') streamError = data.error
@@ -519,14 +659,21 @@ export default function AiBuilderPage({onRefresh}) {
         throw new Error('A IA nÃ£o gerou src/App.tsx para substituir a tela inicial. Tente enviar o pedido novamente.')
       setProjectFiles(nextFiles)
 
-      setMessages(prev => [
-        ...prev.filter(msg => !msg.streaming),
-        {
-          role: 'assistant',
-          content: `Pronto! ${summary}\n\nO projeto usa React + shadcn/ui + Lucide + Recharts. Veja o código na aba "Arquivos". Quando estiver satisfeito, preencha o nome/slug e clique em "Publicar na Hostfy".`,
-          files: operations.map(o => o.path),
-        },
-      ])
+      setMessages(prev => {
+        const streamedMessage = prev.find(msg => msg.streaming)
+        return [
+          ...prev.filter(msg => !msg.streaming),
+          ...(streamedMessage ? [{
+            role: 'assistant',
+            operations: streamedMessage.operations || [],
+          }] : []),
+          {
+            role: 'assistant',
+            content: `Pronto! ${summary}\n\nO projeto usa React + shadcn/ui + Lucide + Recharts. Veja o código na aba "Arquivos". Quando estiver satisfeito, preencha o nome/slug e clique em "Publicar na Hostfy".`,
+            files: operations.map(o => o.path),
+          },
+        ]
+      })
       setRightTab('files')
 
       if (!projectName) {
@@ -536,7 +683,7 @@ export default function AiBuilderPage({onRefresh}) {
       }
     } catch (err) {
       setMessages(prev => [
-        ...prev,
+        ...prev.filter(msg => !msg.streaming),
         {role: 'assistant', content: `Não consegui gerar o projeto: ${err.message}`},
       ])
     } finally {
@@ -619,7 +766,7 @@ export default function AiBuilderPage({onRefresh}) {
           </div>
         </div>
 
-        <div className="ai-chat-messages">
+        <div className="ai-chat-messages" ref={chatMessagesRef} onScroll={handleChatScroll}>
           {messages.map((msg, i) => (
             <ChatMessage key={i} msg={msg} />
           ))}
@@ -633,7 +780,6 @@ export default function AiBuilderPage({onRefresh}) {
               </div>
             </div>
           ) : null}
-          <div ref={chatEndRef} />
         </div>
 
         {/* Sugestões (só se não há mensagens do usuário) */}
