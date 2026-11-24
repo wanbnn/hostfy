@@ -452,8 +452,17 @@ app.post('/api/projects', requireAuth, upload.single('project'), async (req,res)
           res.flushHeaders?.();
           const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
           try {
-            const operations = await ai.generate({ description, existingFiles, onContent: token => send('token', { token }) });
-            send('complete', { operations, model: ai.DEFAULT_MODEL });
+            let autoRepairAttempted = false;
+            const operations = await ai.generate({
+              description,
+              existingFiles,
+              onContent: token => send('token', { token }),
+              onRecovery: error => {
+                autoRepairAttempted = true;
+                send('repair', { error: error.message });
+              },
+            });
+            send('complete', { operations, model: ai.DEFAULT_MODEL, autoRepairAttempted });
             return res.end();
           } catch (error) {
             send('error', { error: error.message || 'Falha ao gerar o projeto.' });

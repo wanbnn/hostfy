@@ -338,6 +338,9 @@ a.brand:active {
 .app-header-inner {
   gap: 16px;
   flex-wrap: wrap;
+  width: 100%;
+  max-width: none;
+  margin: 0;
 }
 
 .nav {
@@ -347,6 +350,10 @@ a.brand:active {
   flex-wrap: wrap;
   flex: 1;
   justify-content: center;
+}
+
+.mobile-nav {
+  display: none;
 }
 
 /* `a.nav-link` (0,1,1) supera a regra de links do BaseStyles do Primer (0,1,0),
@@ -402,6 +409,90 @@ a.nav-link svg {
 @media (max-width: 720px) {
   .hide-small {
     display: none;
+  }
+
+  .app-shell {
+    padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .app-header-inner {
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding: 12px 16px;
+  }
+
+  .nav {
+    display: none;
+  }
+
+  .header-actions {
+    gap: 4px;
+    margin-left: auto;
+  }
+
+  .mobile-nav {
+    position: fixed;
+    z-index: 120;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: flex;
+    align-items: stretch;
+    width: 100%;
+    min-height: 56px;
+    gap: 2px;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--borderColor-default);
+    background-color: var(--bgColor-default);
+    box-shadow: 0 -4px 16px rgba(1, 4, 9, 0.18);
+  }
+
+  a.mobile-nav-link,
+  a.mobile-nav-link:visited {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    min-height: 44px;
+    gap: 4px;
+    padding: 4px 2px;
+    border-radius: var(--borderRadius-medium);
+    color: var(--fgColor-muted);
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+
+  a.mobile-nav-link:hover,
+  a.mobile-nav-link:active,
+  a.mobile-nav-link.active,
+  a.mobile-nav-link.active:visited {
+    background-color: var(--bgColor-muted);
+    color: var(--fgColor-accent, #2f81f7);
+    text-decoration: none;
+  }
+
+  a.mobile-nav-link.active {
+    font-weight: 600;
+  }
+
+  a.mobile-nav-link svg {
+    flex: 0 0 auto;
+    fill: currentColor;
+  }
+
+  a.mobile-nav-link span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .cookie {
+    bottom: calc(68px + env(safe-area-inset-bottom, 0px));
   }
 }
 

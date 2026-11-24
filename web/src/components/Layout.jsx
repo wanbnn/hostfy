@@ -28,12 +28,12 @@ export function Wordmark({className}) {
 }
 
 const NAV = [
-  {to: '/', label: 'Visão geral', icon: HomeIcon, exact: true},
-  {to: '/ai-builder', label: 'Criar com IA', icon: CopilotIcon},
-  {to: '/projects', label: 'Projetos', icon: PackageIcon},
-  {to: '/deploy', label: 'Publicar', icon: UploadIcon},
-  {to: '/docker', label: 'Docker', icon: ServerIcon},
-  {to: '/github', label: 'GitHub', icon: MarkGithubIcon},
+  {to: '/', label: 'Visão geral', mobileLabel: 'Início', icon: HomeIcon, exact: true},
+  {to: '/ai-builder', label: 'Criar com IA', mobileLabel: 'IA', icon: CopilotIcon},
+  {to: '/projects', label: 'Projetos', mobileLabel: 'Projetos', icon: PackageIcon},
+  {to: '/deploy', label: 'Publicar', mobileLabel: 'Publicar', icon: UploadIcon},
+  {to: '/docker', label: 'Docker', mobileLabel: 'Docker', icon: ServerIcon},
+  {to: '/github', label: 'GitHub', mobileLabel: 'GitHub', icon: MarkGithubIcon},
 ]
 
 function isActive(path, item) {
@@ -89,7 +89,7 @@ function NotificationBell({notifications, unread, onReadAll, onReadOne}) {
 export function Layout({user, onLogout, notifications, unread, onReadAll, onReadOne, children}) {
   const {path, navigate} = useRouter()
   const items = user?.isAdmin
-    ? [...NAV, {to: '/system', label: 'Sistema', icon: GearIcon}]
+    ? [...NAV, {to: '/system', label: 'Sistema', mobileLabel: 'Sistema', icon: GearIcon}]
     : NAV
 
   return (
@@ -117,6 +117,24 @@ export function Layout({user, onLogout, notifications, unread, onReadAll, onRead
           </div>
         </div>
       </header>
+      <nav className="mobile-nav" aria-label="Navegação principal">
+        {items.map(item => {
+          const Icon = item.icon
+          const active = isActive(path, item)
+          return (
+            <Link
+              key={item.to}
+              to={item.to}
+              className={`mobile-nav-link ${active ? 'active' : ''}`}
+              aria-current={active ? 'page' : undefined}
+              title={item.label}
+            >
+              <Icon size={17} />
+              <span>{item.mobileLabel || item.label}</span>
+            </Link>
+          )
+        })}
+      </nav>
       <main className={`container ${path.startsWith('/ai-builder') ? 'container-full' : ''}`}>{children}</main>
       <footer className="app-footer">Hostfy · Hospedagem simples para a web.</footer>
     </div>

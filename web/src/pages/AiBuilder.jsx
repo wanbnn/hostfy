@@ -202,6 +202,26 @@ function applyOperations(currentFiles, operations) {
   return {files, summary}
 }
 
+function normalizeStreamedOperations(operations) {
+  const byPath = new Map()
+  for (const operation of operations || []) {
+    if (!operation || typeof operation.path !== 'string') continue
+    const rawPath = operation.path.replace(/\\/g, '/').trim()
+    if (rawPath.startsWith('/') || /^[a-z]:/i.test(rawPath) || rawPath.includes('\0')) continue
+    const filePath = rawPath.replace(/^\.\//, '')
+    if (!filePath || filePath.split('/').some(part => !part || part === '.' || part === '..' || part.includes(':'))) continue
+
+    const op = String(operation.op || 'update').toLowerCase()
+    if (op === 'patch') {
+      if (typeof operation.patch !== 'string' || !operation.patch.trim()) continue
+      byPath.set(filePath, {...operation, op, path: filePath})
+    } else if ((op === 'create' || op === 'update') && typeof operation.content === 'string') {
+      byPath.set(filePath, {...operation, op, path: filePath})
+    }
+  }
+  return [...byPath.values()]
+}
+
 function createOperationStreamParser() {
   let text = ''
   let searchFrom = 0
@@ -345,7 +365,9 @@ function ChatMessage({msg}) {
           </div>
         ) : null}
         {msg.pendingOperation ? <OperationCard operation={msg.pendingOperation} /> : null}
-        {msg.streaming && !msg.operations?.length && !msg.pendingOperation ? (
+        {msg.repairing ? (
+          <div className="ai-msg-stream-status">Ajustando a resposta inválida e preservando os arquivos completos…</div>
+        ) : msg.streaming && !msg.operations?.length && !msg.pendingOperation ? (
           <div className="ai-msg-stream-status">Recebendo a estrutura dos arquivos…</div>
         ) : null}
       </div>
@@ -618,6 +640,8 @@ export default function AiBuilderPage({onRefresh}) {
       let streamBuffer = ''
       let pendingOperations = null
       let streamError = null
+      let autoRepairAttempted = false
+      let streamedOperations = []
       const operationParser = createOperationStreamParser()
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
@@ -629,6 +653,7 @@ export default function AiBuilderPage({onRefresh}) {
         const data = JSON.parse(dataLine.slice(5).trim())
         if (event === 'token') {
           const operations = operationParser.push(data.token)
+          streamedOperations.push(...operations)
           const pendingOperation = operationParser.pending()
           setMessages(prev => {
             const last = prev[prev.length - 1]
@@ -639,8 +664,18 @@ export default function AiBuilderPage({onRefresh}) {
             }]
             return [...prev, {role: 'assistant', streaming: true, operations, pendingOperation}]
           })
-        } else if (event === 'complete') pendingOperations = data.operations || []
-        else if (event === 'error') streamError = data.error
+        } else if (event === 'repair') {
+          autoRepairAttempted = true
+          setMessages(prev => {
+            const last = prev[prev.length - 1]
+            if (!last?.streaming) return prev
+            return [...prev.slice(0, -1), {...last, repairing: true, pendingOperation: null}]
+          })
+        } else if (event === 'complete') {
+          pendingOperations = data.operations || []
+          autoRepairAttempted = Boolean(data.autoRepairAttempted)
+          if (pendingOperations.length) streamedOperations = pendingOperations
+        } else if (event === 'error') streamError = data.error
       }
       while (true) {
         const {value, done} = await reader.read()
@@ -655,8 +690,7 @@ export default function AiBuilderPage({onRefresh}) {
       const operations = pendingOperations || []
       const baseFiles = projectFiles.length ? projectFiles : boilerplate.filter(file => file.path.startsWith('src/'))
       const {files: nextFiles, summary} = applyOperations(baseFiles, operations)
-      if (!operations.some(operation => operation.path === 'src/App.tsx') && !projectFiles.length)
-        throw new Error('A IA nÃ£o gerou src/App.tsx para substituir a tela inicial. Tente enviar o pedido novamente.')
+      const missingEntry = !operations.some(operation => operation.path === 'src/App.tsx') && !projectFiles.length
       setProjectFiles(nextFiles)
 
       setMessages(prev => {
@@ -665,11 +699,13 @@ export default function AiBuilderPage({onRefresh}) {
           ...prev.filter(msg => !msg.streaming),
           ...(streamedMessage ? [{
             role: 'assistant',
-            operations: streamedMessage.operations || [],
+            operations,
           }] : []),
           {
             role: 'assistant',
-            content: `Pronto! ${summary}\n\nO projeto usa React + shadcn/ui + Lucide + Recharts. Veja o código na aba "Arquivos". Quando estiver satisfeito, preencha o nome/slug e clique em "Publicar na Hostfy".`,
+            content: missingEntry
+              ? `${autoRepairAttempted ? 'Corrigi automaticamente a resposta do modelo. ' : ''}Preservei os arquivos gerados. ${summary}\n\nA IA ainda não criou src/App.tsx. Os arquivos estão na aba "Arquivos"; peça para continuar a partir deles.`
+              : `${autoRepairAttempted ? 'Corrigi automaticamente a resposta do modelo. ' : ''}Pronto! ${summary}\n\nO projeto usa React + shadcn/ui + Lucide + Recharts. Veja o código na aba "Arquivos". Quando estiver satisfeito, preencha o nome/slug e clique em "Publicar na Hostfy".`,
             files: operations.map(o => o.path),
           },
         ]
@@ -682,10 +718,32 @@ export default function AiBuilderPage({onRefresh}) {
         setProjectSlug(slugify(name).slice(0, 50))
       }
     } catch (err) {
-      setMessages(prev => [
-        ...prev.filter(msg => !msg.streaming),
-        {role: 'assistant', content: `Não consegui gerar o projeto: ${err.message}`},
-      ])
+      const partialOperations = normalizeStreamedOperations(streamedOperations)
+      if (partialOperations.length) {
+        const baseFiles = projectFiles.length ? projectFiles : boilerplate.filter(file => file.path.startsWith('src/'))
+        const {files: recoveredFiles, summary} = applyOperations(baseFiles, partialOperations)
+        setProjectFiles(recoveredFiles)
+        setRightTab('files')
+        if (!projectName) {
+          const name = userMessage.slice(0, 60).trim()
+          setProjectName(name)
+          setProjectSlug(slugify(name).slice(0, 50))
+        }
+        setMessages(prev => [
+          ...prev.filter(msg => !msg.streaming),
+          {role: 'assistant', operations: partialOperations},
+          {
+            role: 'assistant',
+            content: `A resposta parou antes de finalizar, mas mantive as operações completas na aba "Arquivos". ${summary}\n\nErro final: ${err.message}`,
+            files: partialOperations.map(operation => operation.path),
+          },
+        ])
+      } else {
+        setMessages(prev => [
+          ...prev.filter(msg => !msg.streaming),
+          {role: 'assistant', content: `Não consegui gerar o projeto: ${err.message}`},
+        ])
+      }
     } finally {
       setSending(false)
     }
