@@ -28,27 +28,32 @@ import {
 } from '@primer/octicons-react'
 import {api} from '../api.js'
 import {useRouter} from '../router.jsx'
+import templatePackage from '../../../templates/react-shadcn/package.json?raw'
+import templateViteConfig from '../../../templates/react-shadcn/vite.config.ts?raw'
+import templateTsConfig from '../../../templates/react-shadcn/tsconfig.json?raw'
+import templateTailwindConfig from '../../../templates/react-shadcn/tailwind.config.js?raw'
+import templatePostcssConfig from '../../../templates/react-shadcn/postcss.config.js?raw'
+import templateHtml from '../../../templates/react-shadcn/index.html?raw'
+import templateServer from '../../../templates/react-shadcn/server.js?raw'
+import templateMain from '../../../templates/react-shadcn/src/main.tsx?raw'
+import templateCss from '../../../templates/react-shadcn/src/index.css?raw'
+import templateUtils from '../../../templates/react-shadcn/src/lib/utils.ts?raw'
 
 const PREVIEW_TEMPLATE_FILES = [
-  ['package.json', '/__ai-template/package.json'],
-  ['vite.config.ts', '/__ai-template/vite.config.ts'],
-  ['tsconfig.json', '/__ai-template/tsconfig.json'],
-  ['tailwind.config.js', '/__ai-template/tailwind.config.js'],
-  ['postcss.config.js', '/__ai-template/postcss.config.js'],
-  ['index.html', '/__ai-template/index.html'],
-  ['server.js', '/__ai-template/server.js'],
-  ['src/main.tsx', '/__ai-template/src/main.tsx'],
-  ['src/index.css', '/__ai-template/src/index.css'],
-  ['src/lib/utils.ts', '/__ai-template/src/lib/utils.ts'],
+  ['package.json', templatePackage],
+  ['vite.config.ts', templateViteConfig],
+  ['tsconfig.json', templateTsConfig],
+  ['tailwind.config.js', templateTailwindConfig],
+  ['postcss.config.js', templatePostcssConfig],
+  ['index.html', templateHtml],
+  ['server.js', templateServer],
+  ['src/main.tsx', templateMain],
+  ['src/index.css', templateCss],
+  ['src/lib/utils.ts', templateUtils],
 ]
 
-async function readTemplateFiles() {
-  const files = await Promise.all(PREVIEW_TEMPLATE_FILES.map(async ([path, url]) => {
-    const response = await fetch(url)
-    if (!response.ok) throw new Error(`Não foi possível carregar o boilerplate (${path}).`)
-    return {path, content: await response.text()}
-  }))
-  return files
+function readTemplateFiles() {
+  return PREVIEW_TEMPLATE_FILES.map(([path, content]) => ({path, content}))
 }
 
 /* ------------------------------------------------------------------ */
@@ -377,8 +382,7 @@ export default function AiBuilderPage({onRefresh}) {
 
   useEffect(() => {
     let active = true
-    readTemplateFiles().then(files => { if (active) setBoilerplate(files) })
-      .catch(error => { if (active) setPreviewError(error.message) })
+    if (active) setBoilerplate(readTemplateFiles())
     return () => { active = false }
   }, [])
 
