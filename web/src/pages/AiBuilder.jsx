@@ -38,6 +38,24 @@ import templateServer from '../../../templates/react-shadcn/server.js?raw'
 import templateMain from '../../../templates/react-shadcn/src/main.tsx?raw'
 import templateCss from '../../../templates/react-shadcn/src/index.css?raw'
 import templateUtils from '../../../templates/react-shadcn/src/lib/utils.ts?raw'
+import templateUiAvatar from '../../../templates/react-shadcn/src/components/ui/avatar.tsx?raw'
+import templateUiBadge from '../../../templates/react-shadcn/src/components/ui/badge.tsx?raw'
+import templateUiButton from '../../../templates/react-shadcn/src/components/ui/button.tsx?raw'
+import templateUiCard from '../../../templates/react-shadcn/src/components/ui/card.tsx?raw'
+import templateUiCheckbox from '../../../templates/react-shadcn/src/components/ui/checkbox.tsx?raw'
+import templateUiDialog from '../../../templates/react-shadcn/src/components/ui/dialog.tsx?raw'
+import templateUiDropdownMenu from '../../../templates/react-shadcn/src/components/ui/dropdown-menu.tsx?raw'
+import templateUiInput from '../../../templates/react-shadcn/src/components/ui/input.tsx?raw'
+import templateUiLabel from '../../../templates/react-shadcn/src/components/ui/label.tsx?raw'
+import templateUiProgress from '../../../templates/react-shadcn/src/components/ui/progress.tsx?raw'
+import templateUiSelect from '../../../templates/react-shadcn/src/components/ui/select.tsx?raw'
+import templateUiSeparator from '../../../templates/react-shadcn/src/components/ui/separator.tsx?raw'
+import templateUiSkeleton from '../../../templates/react-shadcn/src/components/ui/skeleton.tsx?raw'
+import templateUiSwitch from '../../../templates/react-shadcn/src/components/ui/switch.tsx?raw'
+import templateUiTable from '../../../templates/react-shadcn/src/components/ui/table.tsx?raw'
+import templateUiTabs from '../../../templates/react-shadcn/src/components/ui/tabs.tsx?raw'
+import templateUiTextarea from '../../../templates/react-shadcn/src/components/ui/textarea.tsx?raw'
+import templateUiTooltip from '../../../templates/react-shadcn/src/components/ui/tooltip.tsx?raw'
 
 const PREVIEW_TEMPLATE_FILES = [
   ['package.json', templatePackage],
@@ -50,6 +68,24 @@ const PREVIEW_TEMPLATE_FILES = [
   ['src/main.tsx', templateMain],
   ['src/index.css', templateCss],
   ['src/lib/utils.ts', templateUtils],
+  ['src/components/ui/avatar.tsx', templateUiAvatar],
+  ['src/components/ui/badge.tsx', templateUiBadge],
+  ['src/components/ui/button.tsx', templateUiButton],
+  ['src/components/ui/card.tsx', templateUiCard],
+  ['src/components/ui/checkbox.tsx', templateUiCheckbox],
+  ['src/components/ui/dialog.tsx', templateUiDialog],
+  ['src/components/ui/dropdown-menu.tsx', templateUiDropdownMenu],
+  ['src/components/ui/input.tsx', templateUiInput],
+  ['src/components/ui/label.tsx', templateUiLabel],
+  ['src/components/ui/progress.tsx', templateUiProgress],
+  ['src/components/ui/select.tsx', templateUiSelect],
+  ['src/components/ui/separator.tsx', templateUiSeparator],
+  ['src/components/ui/skeleton.tsx', templateUiSkeleton],
+  ['src/components/ui/switch.tsx', templateUiSwitch],
+  ['src/components/ui/table.tsx', templateUiTable],
+  ['src/components/ui/tabs.tsx', templateUiTabs],
+  ['src/components/ui/textarea.tsx', templateUiTextarea],
+  ['src/components/ui/tooltip.tsx', templateUiTooltip],
 ]
 
 function readTemplateFiles() {

@@ -51,10 +51,13 @@ app.use('/api', rateLimit({ windowMs: 15 * 60 * 1000, limit: 600, standardHeader
 // expor a porta efÃªmera de cada servidor Vite.
 app.use(AI_PREVIEW_MOUNT, (req, res) => {
   if (req.method === 'OPTIONS') return res.sendStatus(204);
-  const previewPath = req.url === '/' ? '/' : req.url;
-  const target = new URL(previewPath, AI_PREVIEW_UPSTREAM);
+  // Dentro do middleware montado, req.url perde o prefixo do mount. O serviço
+  // de preview espera o caminho completo (/__ai-preview/<id>/...), então
+  // reconstruímos a URL original a partir de req.originalUrl.
+  const original = req.originalUrl || `${AI_PREVIEW_MOUNT}${req.url}`;
+  const target = new URL(original, AI_PREVIEW_UPSTREAM);
   const headers = { ...req.headers, host: target.host };
-  headers['x-hostfy-session'] = req.path.split('/')[1];
+  headers['x-hostfy-session'] = target.pathname.split('/')[2] || '';
   headers['x-forwarded-proto'] = req.headers['x-forwarded-proto'] || req.protocol;
   if (req.headers.host) headers['x-forwarded-host'] = req.headers.host;
   headers['x-forwarded-proto'] = req.headers['x-forwarded-proto'] || req.protocol;
@@ -71,9 +74,10 @@ const appServer = require('http').createServer(app);
 appServer.on('upgrade', (req, socket, head) => {
   const isHmr = req.url.startsWith('/__ai-preview-hmr');
   if (!isHmr && !req.url.startsWith(`${AI_PREVIEW_MOUNT}/`)) return socket.destroy();
-  const targetPath = isHmr ? req.url : req.url.slice(AI_PREVIEW_MOUNT.length);
+    // Mantém o caminho completo (/__ai-preview/<id>/...) esperado pelo serviço.
+    const targetPath = req.url;
   const headers = { ...req.headers, host: `127.0.0.1:${Number(process.env.AI_PREVIEW_PORT || 1595)}` };
-  if (!isHmr) headers['x-hostfy-session'] = targetPath.split('/')[1];
+    if (!isHmr) headers['x-hostfy-session'] = targetPath.split('/')[2] || '';
   const upstream = require('net').connect(Number(process.env.AI_PREVIEW_PORT || 1595), process.env.AI_PREVIEW_HOST || '127.0.0.1', () => {
     let raw = `${req.method} ${targetPath} HTTP/1.1\r\n`;
     for (const [name, value] of Object.entries(headers)) raw += `${name}: ${value}\r\n`;
@@ -340,6 +344,7 @@ async function runnerDeploy(project, storageKey) {
     type: project.type,
     docroot: project.docroot || '',
     startCommand: project.start_command || null,
+        hasBuild: Boolean(project.has_build),
     env,
     rebuild: true,
   });

@@ -50,6 +50,7 @@ REGRAS:
 4. Use TypeScript (.tsx/.ts). Não crie package.json, configs ou componentes em src/components/ui.
 5. Se precisar de um componente shadcn que não está na lista, implemente-o em src/components/ (não em ui/).
 6. Use Tailwind para estilos e lucide-react para ícones. Use recharts quando o usuário pedir gráficos.
+6.1. Importe de lucide-react SOMENTE ícones que existem de fato nessa versão. Nomes com prefixo "Arrow" (ex.: ArrowTrendingUp) NÃO existem: use TrendingUp, TrendingDown, ArrowUp, ArrowDown, ArrowRight, ArrowLeft. Na dúvida, prefira ícones básicos e conhecidos (Activity, Users, DollarSign, ShoppingCart, BarChart3, LineChart, PieChart, Settings, Search, Bell, Check, X, Plus, Minus, Calendar, Clock, Mail, Phone, Home, Menu, ChevronDown, ChevronRight, Star, Heart, Eye, Download, Upload, Trash2, Edit, Save, Filter, RefreshCw, LogOut, User, Lock, Globe, Zap, TrendingUp, TrendingDown). Um ícone inexistente quebra o build inteiro.
 7. Código completo e funcional, sem placeholders como "// TODO" ou "...".
 8. Ao editar um arquivo existente, use "patch" (diff) em vez de reescrevê-lo inteiro.
 9. Responda APENAS com um objeto JSON válido, sem texto ao redor, no formato:

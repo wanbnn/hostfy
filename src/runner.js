@@ -241,11 +241,24 @@ function runStep(app, cmd, args, label) {
   });
 }
 
+// Lê o package.json do projeto e informa se existe um script de build.
+function hasBuildScript(dir) {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+    return typeof pkg?.scripts?.build === 'string' && pkg.scripts.build.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
 async function prepareNode(app, rebuild) {
   const hasLock = fs.existsSync(path.join(app.dir, 'package-lock.json'));
   const hasModules = fs.existsSync(path.join(app.dir, 'node_modules'));
+  // O build (Vite) precisa das devDependencies, então instalamos tudo quando
+  // há build; caso contrário, só as dependências de produção.
+  const omitDev = app.hasBuild ? [] : ['--omit=dev'];
   if (rebuild || !hasModules) {
-    await runStep(app, 'npm', [hasLock ? 'ci' : 'install', '--omit=dev', '--no-audit', '--no-fund'], 'Instalação de dependências');
+    await runStep(app, 'npm', [hasLock ? 'ci' : 'install', ...omitDev, '--no-audit', '--no-fund'], 'Instalação de dependências');
   }
   if (rebuild && app.hasBuild) {
     await runStep(app, 'npm', ['run', 'build'], 'Build');
@@ -397,7 +410,10 @@ async function deployApp(payload) {
     dir,
     docroot: payload.docroot || '',
     startCommand: payload.startCommand || null,
-    hasBuild: Boolean(payload.hasBuild),
+        // Detecta o build direto do package.json em disco: o painel nem sempre
+        // envia hasBuild, e sem isso o "npm run build" (Vite) não roda e o
+        // servidor de produção não encontra o dist/.
+        hasBuild: Boolean(payload.hasBuild) || hasBuildScript(dir),
     env: payload.env || {},
     port: null,
     status: 'deploying',

@@ -5,6 +5,7 @@ const net = require('net');
 const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs/promises');
+const fsSync = require('fs');
 
 const ROOT = path.join(__dirname, '..');
 const TEMPLATE = path.join(ROOT, 'templates', 'react-shadcn');
@@ -15,6 +16,7 @@ const TOKEN = String(process.env.AI_PREVIEW_TOKEN || '');
 const STORAGE = path.resolve(process.env.AI_PREVIEW_DIR || path.join(ROOT, 'data', 'ai-previews'));
 const ALLOWED_ORIGINS = String(process.env.AI_PREVIEW_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean);
 const MAX_BODY = 4 * 1024 * 1024;
+const INSTALL_TIMEOUT_MS = Number(process.env.AI_PREVIEW_INSTALL_TIMEOUT_MS || 300000);
 const sessions = new Map();
 const PORT_RANGE_START = Number(process.env.AI_PREVIEW_VITE_PORT_START || 18000);
 const PORT_RANGE_END = Number(process.env.AI_PREVIEW_VITE_PORT_END || 18100);
@@ -98,6 +100,49 @@ async function writeFiles(dir, files) {
   }
 }
 
+// Instala as dependências do boilerplate no diretório do preview. O Vite só
+// consegue iniciar depois que node_modules existe; sem isso o preview falha.
+// Reaproveita node_modules de um preview anterior (mesmo package-lock) para
+// evitar reinstalar a cada sessão.
+async function ensureDependencies(dir) {
+  const modules = path.join(dir, 'node_modules');
+  const viteBin = path.join(modules, 'vite', 'bin', 'vite.js');
+  if (fsSync.existsSync(viteBin)) return;
+  const lock = path.join(dir, 'package-lock.json');
+  const hasLock = fsSync.existsSync(lock);
+  const cache = path.join(STORAGE, '.deps-cache');
+  const cached = path.join(cache, 'node_modules');
+  if (hasLock && fsSync.existsSync(path.join(cached, 'vite', 'bin', 'vite.js'))) {
+    await fs.cp(cached, modules, { recursive: true });
+    return;
+  }
+  await new Promise((resolve, reject) => {
+    const child = spawn('npm', [hasLock ? 'ci' : 'install', '--no-audit', '--no-fund'], {
+      cwd: dir,
+      env: { ...process.env, NO_COLOR: '1', npm_config_update_notifier: 'false' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let output = '';
+    const collect = chunk => { output = (output + String(chunk)).slice(-4000); };
+    child.stdout.on('data', collect);
+    child.stderr.on('data', collect);
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error('Tempo esgotado ao instalar as dependências do preview.'));
+    }, INSTALL_TIMEOUT_MS);
+    child.on('error', error => { clearTimeout(timer); reject(error); });
+    child.on('exit', code => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(new Error(`Falha ao instalar as dependências do preview (código ${code}). ${output.slice(-1200)}`));
+    });
+  });
+  if (hasLock) {
+    await fs.mkdir(cache, { recursive: true });
+    await fs.cp(modules, cached, { recursive: true }).catch(() => {});
+  }
+}
+
 async function startSession(id, files) {
   let session = sessions.get(id);
   if (!session) {
@@ -114,6 +159,7 @@ async function startSession(id, files) {
     await fs.cp(TEMPLATE, dir, { recursive: true });
   }
   await writeFiles(dir, files);
+  await ensureDependencies(dir);
   if (session.process && session.process.exitCode === null) {
     const current = session.process;
     session.process.kill();
@@ -211,8 +257,14 @@ const server = http.createServer(async (req, res) => {
       const id = String(body.id || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80);
       if (!id) return respond(res, 400, { error: 'Identificador do preview invÃ¡lido.' });
       const session = await startSession(id, body.files);
+      // O painel acessa o preview pelo proxy same-origin (/__ai-preview). O host
+      // público vem de x-forwarded-host (enviado pelo proxy) ou do Host da
+      // requisição. AI_PREVIEW_PUBLIC_URL só é usado como último recurso, pois
+      // costuma apontar para o endereço interno do serviço (127.0.0.1:1595).
+      const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+      const host = forwardedHost || req.headers.host;
       const protocol = req.headers['x-forwarded-proto'] || (PUBLIC_URL ? new URL(PUBLIC_URL).protocol.slice(0, -1) : 'http');
-      const publicBase = PUBLIC_URL || `${protocol}://${req.headers.host}`;
+      const publicBase = host ? `${protocol}://${host}` : PUBLIC_URL;
       return respond(res, 200, { url: `${publicBase}/__ai-preview/${id}/?session=${id}`, port: session.port });
     }
     if (req.method === 'POST' && url.pathname.startsWith('/sessions/')) {
