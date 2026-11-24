@@ -15,6 +15,8 @@ const runner = require('./runner-client');
 const github = require('./github');
 const projectDb = require('./project-db');
 const files = require('./files');
+const ai = require('./ai');
+const aiTemplate = require('./ai-template');
 const { encrypt, decrypt } = require('./secrets');
 
 const app = express();
@@ -368,6 +370,97 @@ app.post('/api/projects', requireAuth, upload.single('project'), async (req,res)
     console.error(e); res.status(400).json({ error: e.message || 'Falha ao publicar projeto.' });
   } finally { if (temp) await fs.rm(temp, { force: true }).catch(()=>{}); }
 });
+
+  // ---------------------------------------------------------------------------
+  // AI Builder — geração de projeto React (shadcn + lucide + recharts)
+  // ---------------------------------------------------------------------------
+
+  // Gera as operações (create/update/patch) a partir de uma descrição em
+    // linguagem natural. O boilerplate (package.json, configs, componentes shadcn)
+    // NÃO é gerado pelo modelo: ele é mesclado no deploy. O modelo recebe o
+    // conteúdo atual dos arquivos para poder editar via patch (diff).
+  app.post('/api/ai/generate', requireAuth, rateLimit({ windowMs: 60 * 1000, limit: 20 }), async (req, res) => {
+    try {
+      if (!ai.enabled()) return res.status(503).json({ error: 'Geração por IA não está configurada neste servidor.' });
+      const description = String(req.body?.description || '').trim();
+      if (!description) return res.status(400).json({ error: 'Descreva o projeto que deseja criar.' });
+      if (description.length > 4000) return res.status(400).json({ error: 'Descrição muito longa (máx. 4.000 caracteres).' });
+
+        // Aceita tanto strings (só caminhos) quanto objetos {path, content}.
+      const existingFiles = Array.isArray(req.body?.existingFiles)
+          ? req.body.existingFiles
+              .slice(0, 200)
+              .map(f => (typeof f === 'string' ? { path: f, content: '' } : { path: String(f?.path || ''), content: String(f?.content ?? '') }))
+              .filter(f => f.path)
+        : [];
+
+        const operations = await ai.generate({ description, existingFiles });
+        res.json({ operations, model: ai.DEFAULT_MODEL });
+    } catch (e) {
+      console.error(e);
+      res.status(502).json({ error: e.message || 'Falha ao gerar o projeto.' });
+    }
+  });
+
+  // Publica um projeto gerado pela IA: mescla o template com os arquivos da IA,
+  // grava no storage e sobe como projeto Node (build + start via runner).
+  app.post('/api/ai/deploy', requireAuth, async (req, res) => {
+    let finalDir, insertedId;
+    try {
+      const name = safeName(req.body?.name);
+      const slug = String(req.body?.slug || '').trim().toLowerCase();
+      if (!name || !slugOk(slug)) return res.status(400).json({ error: 'Informe nome e slug válido (letras minúsculas, números e hífen).' });
+
+      // Aceita o formato novo (operations) e o antigo (files).
+            const operations = Array.isArray(req.body?.operations)
+              ? req.body.operations
+              : Array.isArray(req.body?.files)
+                ? req.body.files.map(f => ({ op: 'update', path: f?.path, content: f?.content }))
+                : [];
+            if (!operations.length) return res.status(400).json({ error: 'Nenhuma operação para publicar.' });
+            if (operations.length > 200) return res.status(400).json({ error: 'Operações demais para publicar.' });
+
+      const exists = await pool.query('SELECT 1 FROM projects WHERE slug=$1', [slug]);
+      if (exists.rowCount) return res.status(409).json({ error: 'Este slug já está em uso.' });
+
+      if (!runner.enabled()) return res.status(400).json({ error: 'Execução de Node não está habilitada neste servidor (runner não configurado).' });
+
+      const storageKey = crypto.randomUUID();
+      finalDir = path.join(STORAGE, storageKey);
+            const merged = await aiTemplate.materialize(finalDir, operations);
+            if (!merged.applied.length)
+              throw new Error('Nenhuma operação pôde ser aplicada ao projeto.');
+
+      const detected = detectProjectType(finalDir);
+      if (detected.type !== 'node' || !detected.startCommand)
+        throw new Error('O projeto gerado não pôde ser preparado para execução.');
+
+      const { rows } = await pool.query(
+        `INSERT INTO projects(user_id,name,slug,type,docroot,start_command,status,source,env_json)
+         VALUES($1,$2,$3,'node',$4,$5,'deploying','ai',$6)
+         RETURNING ${PROJECT_COLUMNS.replace(/p\./g, '')}`,
+        [req.user.sub, name, slug, detected.docroot || null, detected.startCommand, JSON.stringify({})]
+      );
+      insertedId = rows[0].id;
+      await pool.query('INSERT INTO project_storage(project_id,storage_key) VALUES($1,$2)', [insertedId, storageKey]);
+
+      const project = { ...rows[0], storage_key: storageKey, env_json: {} };
+      const result = await runnerDeploy(project, storageKey);
+      await applyDeployResult(insertedId, result);
+      project.status = result.status || 'running';
+      project.runtime_port = result.port || null;
+
+      res.status(201).json({ project: projectView(project), url: projectUrl('node', slug) });
+    } catch (e) {
+      if (insertedId) {
+        await runner.remove(String(insertedId)).catch(() => {});
+        await pool.query('DELETE FROM projects WHERE id=$1', [insertedId]).catch(() => {});
+      }
+      if (finalDir) await fs.rm(finalDir, { recursive: true, force: true }).catch(()=>{});
+      if (e.code === '23505') return res.status(409).json({ error: 'Este slug já está em uso.' });
+      console.error(e); res.status(400).json({ error: e.message || 'Falha ao publicar projeto.' });
+    }
+  });
 
 // Publicação de projeto Docker a partir de ZIP.
 app.post('/api/projects/docker', requireAuth, upload.single('project'), async (req,res) => {

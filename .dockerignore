@@ -3,3 +3,5 @@ public
 .git
 .env
 *.zip
+templates/**/node_modules
+templates/**/dist

@@ -14,6 +14,8 @@ COPY package*.json ./
 RUN npm install --omit=dev && npm cache clean --force
 COPY --from=build /app/public ./public
 COPY src ./src
+# Boilerplate usado pelo AI Builder (React + shadcn/ui + lucide + recharts).
+COPY templates ./templates
 RUN mkdir -p /data/projects && chown -R node:node /app /data/projects
 USER node
 EXPOSE 1591 1592

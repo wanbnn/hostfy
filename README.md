@@ -27,6 +27,7 @@ Além disso, cada projeto tem:
 | `/files/:id` | **Arquivos** — gerenciador de arquivos do projeto (listar, editar, enviar, renomear, excluir). |
 | `/database/:id` | **Banco** — banco de dados do projeto: conexão, uso de disco, tabelas e console SQL. |
 | `/deploy` | **Publicar** — envio de ZIP (estático/PHP/Node) ou de um projeto Docker Compose. |
+| `/ai` | **Criar com IA** — descreva o projeto em linguagem natural e o AI Builder gera um app React (shadcn/ui + lucide + recharts) e publica. |
 | `/docker` | **Docker** — gerenciamento das stacks Compose, métricas e ciclo de vida. |
 | `/github` | **GitHub** — vincular conta (PAT), listar repositórios e publicar direto do repositório. |
 | `/system` | **Sistema** — (administrador) métricas do Docker do host, candidatos à limpeza e prune completo. |
@@ -81,6 +82,48 @@ minha-api.zip
 ├── server.js
 └── ...
 ```
+
+## AI Builder (criar projeto com IA)
+
+A página **Criar com IA** (`/ai`) gera um app **React + Vite + Tailwind + shadcn/ui +
+lucide-react + recharts** a partir de uma descrição em linguagem natural e publica
+como projeto Node.
+
+### Como funciona
+
+1. O usuário descreve o projeto no chat.
+2. O backend (`POST /api/ai/generate`) chama um LLM compatível com a API OpenAI e
+   recebe **operações** sobre os arquivos de aplicação (ex.: `src/App.tsx`,
+   `src/components/*`). Cada operação é uma de:
+   - `create` — cria um arquivo novo;
+   - `update` — reescreve o arquivo inteiro;
+   - `patch` — aplica um **unified diff** sobre o conteúdo atual (preferido para
+     editar arquivos existentes, economiza tokens e reduz regressões).
+3. Ao publicar (`POST /api/ai/deploy`), o backend **mescla** as operações sobre o
+   boilerplate em [`templates/react-shadcn`](./templates/react-shadcn) e sobe como
+   projeto Node (o runner roda `npm ci`, `npm run build` e `npm start`).
+
+O modelo **não** gera `package.json`, configs do Vite/Tailwind nem os componentes
+shadcn — eles já vêm prontos no template. Isso reduz tokens, evita imports/versões
+inventadas e garante que `recharts` e `lucide-react` estejam sempre disponíveis.
+
+### Configuração
+
+Defina no `.env` (veja `.env.example`):
+
+```
+AI_API_KEY=...            # obrigatório; sem ele o AI Builder fica desabilitado
+AI_BASE_URL=https://api.openai.com/v1
+AI_MODEL=gpt-4o-mini
+```
+
+Funciona com qualquer endpoint compatível com OpenAI Chat Completions (OpenAI,
+Azure OpenAI, Groq, Together, OpenRouter, Ollama, LM Studio…).
+
+> **Importante:** o runner instala dependências com `npm ci --omit=dev` antes do
+> build. Por isso tudo que o build precisa (`vite`, `@vitejs/plugin-react`,
+> `tailwindcss`, `postcss`, `autoprefixer`) fica em `dependencies` no template.
+> Se mover para `devDependencies`, o build quebra em produção.
 
 ## Projetos Docker Compose
 
@@ -414,6 +457,14 @@ O backend (`npm start`) serve os arquivos já compilados de `public/`.
 | `CLEANUP_GRACE_HOURS` | 24 | Carência antes de remover contêineres parados/imagens/volumes sem uso |
 | `CLEANUP_INTERVAL_MINUTES` | 60 | Intervalo entre varreduras de limpeza |
 | `DOCKER_TIMEOUT_MS` | 1200000 | Tempo máximo para operações do Docker (inclui builds de Compose) |
+| `AI_API_KEY` | (vazio) | Chave do provedor de IA (compatível com OpenAI). Sem ela, o AI Builder fica desabilitado |
+| `AI_BASE_URL` | https://api.openai.com/v1 | Base URL do provedor de IA |
+| `AI_MODEL` | gpt-4o-mini | Modelo usado na geração |
+| `AI_TEMPERATURE` | 0.3 | Temperatura da geração |
+| `AI_TIMEOUT_MS` | 120000 | Timeout (ms) da chamada ao provedor |
+| `AI_MAX_FILES` | 40 | Máximo de arquivos aceitos na resposta do modelo |
+| `AI_MAX_FILE_BYTES` | 5000000 | Tamanho máximo (bytes) por arquivo gerado |
+| `AI_TEMPLATE_DIR` | ./templates/react-shadcn | Diretório do boilerplate usado pelo AI Builder |
 
 ## Comandos úteis
 

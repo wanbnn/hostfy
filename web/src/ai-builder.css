@@ -31,12 +31,19 @@
 
 .ai-chat-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 8px;
   padding: 14px 16px;
   border-bottom: 1px solid var(--borderColor-default);
   flex-shrink: 0;
+}
+
+.ai-chat-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .ai-chat-title {
@@ -69,9 +76,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  color: var(--fgColor-muted);
   flex-shrink: 0;
   border: 1px solid var(--borderColor-default);
+}
+
+.ai-msg-avatar svg {
+  fill: currentColor;
 }
 
 .ai-msg-content {
@@ -326,6 +337,23 @@
   width: 100%;
   border: none;
   background: #fff;
+}
+
+.ai-preview-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px;
+  text-align: center;
+  color: var(--fgColor-muted);
+}
+
+.ai-preview-placeholder svg {
+  fill: var(--fgColor-muted);
+  opacity: 0.6;
 }
 
 /* ---- Painel de arquivos ---- */
