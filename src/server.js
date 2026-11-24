@@ -633,8 +633,7 @@ app.get('/api/github/repos', requireAuth, async (req,res) => {
   const token = await githubToken(req.user.sub);
   if (!token) return res.status(400).json({ error: 'Conecte sua conta do GitHub primeiro.' });
   try {
-    const repos = await github.listRepos(token, req.query.page || 1);
-    res.json({ repos });
+    res.json(await github.listRepos(token, req.query.page));
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

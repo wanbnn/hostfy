@@ -62,11 +62,18 @@ function repoShape(repo) {
 }
 
 async function listRepos(token, page = 1) {
-  const { data } = await request(
+  const parsedPage = Number(page);
+  const currentPage = Number.isSafeInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+  const { data, response } = await request(
     token,
-    `/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member&page=${Number(page) || 1}`
+    `/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member&page=${currentPage}`,
+    { signal: AbortSignal.timeout(15000) }
   );
-  return Array.isArray(data) ? data.map(repoShape) : [];
+  const hasNext = /;\s*rel="next"/.test(response.headers.get('link') || '');
+  return {
+    repos: Array.isArray(data) ? data.map(repoShape) : [],
+    nextPage: hasNext ? currentPage + 1 : null,
+  };
 }
 
 async function listBranches(token, fullName, page = 1) {

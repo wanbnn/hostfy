@@ -698,7 +698,6 @@ a.nav-link svg {
 /* Lista de projetos */
 .project-list,
 .docker-list,
-.repo-list,
 .recent-list {
   display: flex;
   flex-direction: column;
@@ -707,7 +706,6 @@ a.nav-link svg {
 
 .project-card,
 .docker-card,
-.repo-row,
 .recent-row {
   border: 1px solid var(--borderColor-default);
   border-radius: var(--borderRadius-large);
@@ -719,16 +717,14 @@ a.nav-link svg {
 }
 
 .project-main,
-.recent-row,
-.repo-row {
+.recent-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.recent-row,
-.repo-row {
+.recent-row {
   padding: 12px 14px;
 }
 
