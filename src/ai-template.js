@@ -4,7 +4,7 @@
 // Template base do AI Builder
 //
 // O modelo de IA gera apenas os arquivos de aplicação. Aqui mesclamos esses
-// arquivos sobre o boilerplate React + shadcn/ui + lucide + recharts, para que
+// arquivos sobre o boilerplate React + shadcn/ui + kit Hostfy + lucide + recharts, para que
 // o modelo não precise (e não possa) reescrever package.json, configs, etc.
 //
 // O modelo pode enviar operações de três tipos:
@@ -38,6 +38,8 @@ const PROTECTED = new Set([
   'src/main.tsx',
   'src/index.css',
   'src/lib/utils.ts',
+  'src/components/hostfy/index.tsx',
+  'src/components/hostfy/styles.css',
 ]);
 
 // Normaliza um caminho relativo vindo do modelo, recusando escapes.
@@ -86,7 +88,9 @@ async function applyOperation(destDir, operation) {
     return { path: operation?.path, op: operation?.op, ok: false, error: e.message };
   }
   if (!rel) return { path: operation?.path, op: operation?.op, ok: false, error: 'Caminho vazio.' };
-  if (PROTECTED.has(rel)) return { path: rel, op: operation?.op, ok: false, error: 'Arquivo protegido.' };
+  if (PROTECTED.has(rel) || rel.toLowerCase().startsWith('src/components/hostfy/')) {
+    return { path: rel, op: operation?.op, ok: false, error: 'Arquivo protegido.' };
+  }
 
   const target = path.join(destDir, rel);
   const op = String(operation?.op || '').toLowerCase();

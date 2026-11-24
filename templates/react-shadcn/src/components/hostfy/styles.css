@@ -1,0 +1,478 @@
+.hostfy-shell {
+  display: grid;
+  grid-template-columns: 256px minmax(0, 1fr);
+  min-height: 100vh;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.hostfy-sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  padding: 20px 14px;
+  border-right: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+}
+
+.hostfy-brand {
+  min-height: 42px;
+  padding: 5px 10px 16px;
+  overflow: hidden;
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hostfy-sidebar-nav,
+.hostfy-mobile-nav {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.hostfy-sidebar-nav {
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+.hostfy-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 42px;
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 9px;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1.3;
+  text-decoration: none;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.hostfy-nav-link:hover,
+.hostfy-nav-link[aria-current='page'] {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+  text-decoration: none;
+}
+
+.hostfy-nav-link svg {
+  flex: 0 0 auto;
+}
+
+.hostfy-nav-link span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hostfy-sidebar-footer {
+  display: grid;
+  gap: 8px;
+  margin-top: auto;
+  padding: 14px 8px 4px;
+}
+
+.hostfy-main-column {
+  min-width: 0;
+  min-height: 100vh;
+}
+
+.hostfy-topbar {
+  position: sticky;
+  z-index: 10;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 64px;
+  min-width: 0;
+  padding: 10px clamp(18px, 3vw, 36px);
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--background) / 0.96);
+  backdrop-filter: blur(12px);
+}
+
+.hostfy-topbar-content {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+}
+
+.hostfy-mobile-toggle,
+.hostfy-mobile-brand,
+.hostfy-mobile-navigation {
+  display: none;
+}
+
+.hostfy-mobile-toggle {
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 9px;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  cursor: pointer;
+}
+
+.hostfy-main-content {
+  width: 100%;
+  max-width: 1500px;
+  min-width: 0;
+  margin: 0 auto;
+  padding: clamp(20px, 3vw, 40px);
+}
+
+.hostfy-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  min-width: 0;
+  margin-bottom: 26px;
+}
+
+.hostfy-page-heading {
+  min-width: 0;
+}
+
+.hostfy-page-heading h1 {
+  margin: 0;
+  font-size: clamp(1.5rem, 2.5vw, 2rem);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+
+.hostfy-page-heading p,
+.hostfy-panel-heading p,
+.hostfy-empty-state p {
+  margin: 7px 0 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.hostfy-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.hostfy-content-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  min-width: 0;
+}
+
+.hostfy-content-grid[data-columns='1'] { grid-template-columns: minmax(0, 1fr); }
+.hostfy-content-grid[data-columns='2'] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.hostfy-content-grid[data-columns='4'] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+.hostfy-metric-card,
+.hostfy-panel {
+  min-width: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  background: hsl(var(--card));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+}
+
+.hostfy-metric-card {
+  padding: 18px;
+}
+
+.hostfy-metric-topline,
+.hostfy-metric-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.hostfy-metric-label,
+.hostfy-muted {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.85rem;
+}
+
+.hostfy-metric-icon {
+  flex: 0 0 auto;
+  color: hsl(var(--muted-foreground));
+}
+
+.hostfy-metric-value {
+  margin-top: 13px;
+  overflow-wrap: anywhere;
+  font-size: clamp(1.45rem, 2.5vw, 1.9rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+}
+
+.hostfy-metric-foot {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.hostfy-metric-change {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.hostfy-tone-positive { color: #15803d; }
+.hostfy-tone-negative { color: #b91c1c; }
+.hostfy-tone-neutral { color: hsl(var(--muted-foreground)); }
+
+.hostfy-panel {
+  overflow: hidden;
+}
+
+.hostfy-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding: 18px 20px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.hostfy-panel-heading {
+  min-width: 0;
+}
+
+.hostfy-panel-heading h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.hostfy-panel-heading p {
+  font-size: 0.82rem;
+}
+
+.hostfy-panel-action {
+  flex: 0 0 auto;
+}
+
+.hostfy-panel-content {
+  min-width: 0;
+  padding: 20px;
+}
+
+.hostfy-table-scroll {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.hostfy-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.hostfy-table th,
+.hostfy-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid hsl(var(--border));
+  vertical-align: middle;
+}
+
+.hostfy-table th {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+  white-space: nowrap;
+}
+
+.hostfy-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.hostfy-table tbody tr:hover {
+  background: hsl(var(--muted) / 0.45);
+}
+
+.hostfy-table [data-align='center'] { text-align: center; }
+.hostfy-table [data-align='right'] { text-align: right; }
+
+.hostfy-table-empty {
+  padding: 28px 14px !important;
+  color: hsl(var(--muted-foreground));
+  text-align: center !important;
+}
+
+.hostfy-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.hostfy-status-positive { background: #dcfce7; color: #166534; }
+.hostfy-status-warning { background: #fef3c7; color: #92400e; }
+.hostfy-status-danger { background: #fee2e2; color: #991b1b; }
+.hostfy-status-info { background: #dbeafe; color: #1e40af; }
+.hostfy-status-neutral { border-color: hsl(var(--border)); background: hsl(var(--muted)); color: hsl(var(--foreground)); }
+
+.hostfy-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  padding: 28px;
+  color: hsl(var(--muted-foreground));
+  text-align: center;
+}
+
+.hostfy-empty-icon {
+  margin-bottom: 12px;
+  color: hsl(var(--muted-foreground));
+}
+
+.hostfy-empty-state h3 {
+  margin: 0;
+  color: hsl(var(--foreground));
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.hostfy-empty-state p {
+  max-width: 420px;
+}
+
+.hostfy-empty-action {
+  margin-top: 16px;
+}
+
+@media (max-width: 900px) {
+  .hostfy-content-grid[data-columns='4'],
+  .hostfy-content-grid[data-columns='3'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .hostfy-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hostfy-sidebar {
+    display: none;
+  }
+
+  .hostfy-main-column {
+    min-height: 100vh;
+  }
+
+  .hostfy-topbar {
+    gap: 10px;
+    min-height: 60px;
+    padding: 8px 14px;
+  }
+
+  .hostfy-mobile-toggle,
+  .hostfy-mobile-brand {
+    display: flex;
+  }
+
+  .hostfy-mobile-brand {
+    min-width: 0;
+    overflow: hidden;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .hostfy-topbar-content {
+    width: auto;
+    margin-left: auto;
+  }
+
+  .hostfy-mobile-navigation {
+    display: block;
+    padding: 10px 14px;
+    border-bottom: 1px solid hsl(var(--border));
+    background: hsl(var(--background));
+  }
+
+  .hostfy-mobile-nav {
+    gap: 2px;
+  }
+
+  .hostfy-mobile-footer {
+    display: grid;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 12px 8px 4px;
+    border-top: 1px solid hsl(var(--border));
+  }
+
+  .hostfy-main-content {
+    padding: 20px 16px 28px;
+  }
+
+  .hostfy-page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+
+  .hostfy-page-actions {
+    justify-content: flex-start;
+  }
+
+  .hostfy-panel-content {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 560px) {
+  .hostfy-content-grid[data-columns='2'],
+  .hostfy-content-grid[data-columns='3'],
+  .hostfy-content-grid[data-columns='4'] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hostfy-panel-header {
+    gap: 10px;
+    padding: 16px;
+  }
+}

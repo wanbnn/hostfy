@@ -21,20 +21,30 @@ function enabled() {
 }
 
 // Instruções fixas: o modelo só produz arquivos de aplicação. O boilerplate
-// (package.json, configs, componentes shadcn) já existe e não deve ser reescrito.
+// e os componentes Hostfy já existem e não devem ser reescritos.
 const SYSTEM_PROMPT = `Você é um gerador de aplicações React para a plataforma Hostfy.
 
 O projeto JÁ EXISTE com este boilerplate pronto (NÃO gere nem altere estes arquivos):
 - package.json, vite.config.ts, tsconfig.json, tailwind.config.js, postcss.config.js, components.json, index.html, server.js
 - src/main.tsx, src/index.css, src/lib/utils.ts
 - src/components/ui/* (componentes shadcn/ui prontos)
+- src/components/hostfy/* (kit de prefabs responsivos pronto)
 
 Dependências já instaladas e disponíveis para importar:
 - react, react-dom
 - lucide-react (ícones)
 - recharts (gráficos: LineChart, BarChart, AreaChart, PieChart, ResponsiveContainer, etc.)
 - shadcn/ui em "@/components/ui/*": button, card, input, label, badge, table, tabs, separator, avatar, progress, textarea, skeleton, select, dialog, dropdown-menu, switch, checkbox, tooltip
+- kit "@/components/hostfy": AppShell, PageHeader, ContentGrid, MetricCard, Panel, DataTable, StatusBadge, EmptyState
 - "@/lib/utils" exporta cn()
+
+USO DO KIT HOSTFY:
+- O src/App.tsx inicial já é um dashboard funcional montado com esses prefabs. Na primeira geração, adapte esse arquivo com "patch" quando possível em vez de reconstruir o layout; substitua o conteúdo se o pedido exigir outro tipo de aplicação.
+- Para dashboards e sistemas internos, monte a página dentro de AppShell. Ele posiciona sidebar e conteúdo em CSS Grid no desktop e abre a navegação no fluxo da página em telas menores; o conteúdo nunca fica atrás de uma sidebar fixa.
+- AppShell recebe brand, navItems (itens {label, href, icon}), activeHref, header, sidebarFooter e children. Exemplo: <AppShell brand="Acme" navItems={[{label:"Visão geral",href:"#inicio",icon:Home}]} activeHref="#inicio"><PageHeader title="Visão geral" description="Resumo da conta" /><ContentGrid columns={3}><MetricCard label="Receita" value="R$ 12.400" change="+8%" changeTone="positive" /></ContentGrid><Panel title="Reservas"><DataTable columns={[{key:"nome",label:"Nome"}]} rows={[{nome:"Ana"}]} /></Panel></AppShell>.
+- MetricCard: label, value, change, hint, icon, changeTone (positive|negative|neutral). Panel: title, description, action e children. ContentGrid: columns 1|2|3|4 (as colunas reduzem automaticamente em tablet/celular). DataTable: columns [{key,label,align?}], rows de objetos, getRowKey opcional e emptyMessage. StatusBadge: tone positive|warning|danger|info|neutral e children. EmptyState: title, description, icon e action.
+- Os estilos do kit são carregados automaticamente. Componha os prefabs primeiro e depois escreva ou edite livremente o código da aplicação em src/App.tsx e componentes próprios em src/components/*. Não sobrescreva src/components/hostfy/*.
+- Não use position: fixed/absolute para sidebar ou navegação principal, nem w-screen/100vw para a largura da página. Em grids e flex use min-w-0 e colunas minmax(0, 1fr); em tabelas use overflow-x-auto.
 
 OPERAÇÕES DISPONÍVEIS (escolha a mais econômica):
 - "create": cria um arquivo novo. Use quando o arquivo ainda não existe.
@@ -129,6 +139,7 @@ function normalizeOperations(raw) {
     if (!item || typeof item.path !== 'string') continue;
     const rel = safeRel(item.path);
       if (!rel) continue;
+    if (rel.toLowerCase().startsWith('src/components/hostfy/')) continue;
 
     const op = String(item.op || '').toLowerCase();
     if (op === 'patch') {

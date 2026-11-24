@@ -36,6 +36,7 @@ import templatePostcssConfig from '../../../templates/react-shadcn/postcss.confi
 import templateHtml from '../../../templates/react-shadcn/index.html?raw'
 import templateServer from '../../../templates/react-shadcn/server.js?raw'
 import templateMain from '../../../templates/react-shadcn/src/main.tsx?raw'
+import templateApp from '../../../templates/react-shadcn/src/App.tsx?raw'
 import templateCss from '../../../templates/react-shadcn/src/index.css?raw'
 import templateUtils from '../../../templates/react-shadcn/src/lib/utils.ts?raw'
 import templateUiAvatar from '../../../templates/react-shadcn/src/components/ui/avatar.tsx?raw'
@@ -56,6 +57,8 @@ import templateUiTable from '../../../templates/react-shadcn/src/components/ui/t
 import templateUiTabs from '../../../templates/react-shadcn/src/components/ui/tabs.tsx?raw'
 import templateUiTextarea from '../../../templates/react-shadcn/src/components/ui/textarea.tsx?raw'
 import templateUiTooltip from '../../../templates/react-shadcn/src/components/ui/tooltip.tsx?raw'
+import templateHostfyComponents from '../../../templates/react-shadcn/src/components/hostfy/index.tsx?raw'
+import templateHostfyStyles from '../../../templates/react-shadcn/src/components/hostfy/styles.css?raw'
 
 const PREVIEW_TEMPLATE_FILES = [
   ['package.json', templatePackage],
@@ -66,6 +69,7 @@ const PREVIEW_TEMPLATE_FILES = [
   ['index.html', templateHtml],
   ['server.js', templateServer],
   ['src/main.tsx', templateMain],
+  ['src/App.tsx', templateApp],
   ['src/index.css', templateCss],
   ['src/lib/utils.ts', templateUtils],
   ['src/components/ui/avatar.tsx', templateUiAvatar],
@@ -86,6 +90,8 @@ const PREVIEW_TEMPLATE_FILES = [
   ['src/components/ui/tabs.tsx', templateUiTabs],
   ['src/components/ui/textarea.tsx', templateUiTextarea],
   ['src/components/ui/tooltip.tsx', templateUiTooltip],
+  ['src/components/hostfy/index.tsx', templateHostfyComponents],
+  ['src/components/hostfy/styles.css', templateHostfyStyles],
 ]
 
 function readTemplateFiles() {
@@ -210,6 +216,7 @@ function normalizeStreamedOperations(operations) {
     if (rawPath.startsWith('/') || /^[a-z]:/i.test(rawPath) || rawPath.includes('\0')) continue
     const filePath = rawPath.replace(/^\.\//, '')
     if (!filePath || filePath.split('/').some(part => !part || part === '.' || part === '..' || part.includes(':'))) continue
+    if (filePath.toLowerCase().startsWith('src/components/hostfy/')) continue
 
     const op = String(operation.op || 'update').toLowerCase()
     if (op === 'patch') {
@@ -531,7 +538,7 @@ export default function AiBuilderPage({onRefresh}) {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      content: 'Olá! Sou o assistente de criação de projetos da Hostfy.\n\nDescreva o projeto que deseja criar e eu vou gerar os arquivos para você. Os projetos usam React + shadcn/ui + Lucide Icons + Recharts (gráficos).\n\nVocê pode dizer algo como:\n• "Crie uma landing page com hero e seção de preços"\n• "Quero um dashboard com sidebar e gráficos de vendas"\n• "Monte um portfólio minimalista"',
+      content: 'Olá! Sou o assistente de criação de projetos da Hostfy.\n\nDescreva o projeto que deseja criar e eu vou gerar os arquivos para você. Os projetos usam React + shadcn/ui + Lucide Icons + Recharts e incluem prefabs responsivos para dashboards: AppShell, cards de métricas, painéis, tabelas e estados vazios. O código da aplicação continua editável pelo chat.\n\nVocê pode dizer algo como:\n• "Crie uma landing page com hero e seção de preços"\n• "Quero um dashboard com sidebar e gráficos de vendas"\n• "Monte um portfólio minimalista"',
     },
   ])
   const [input, setInput] = useState('')
@@ -690,7 +697,7 @@ export default function AiBuilderPage({onRefresh}) {
       const operations = pendingOperations || []
       const baseFiles = projectFiles.length ? projectFiles : boilerplate.filter(file => file.path.startsWith('src/'))
       const {files: nextFiles, summary} = applyOperations(baseFiles, operations)
-      const missingEntry = !operations.some(operation => operation.path === 'src/App.tsx') && !projectFiles.length
+      const entryNotCustomized = !operations.some(operation => operation.path === 'src/App.tsx') && !projectFiles.length
       setProjectFiles(nextFiles)
 
       setMessages(prev => {
@@ -703,8 +710,8 @@ export default function AiBuilderPage({onRefresh}) {
           }] : []),
           {
             role: 'assistant',
-            content: missingEntry
-              ? `${autoRepairAttempted ? 'Corrigi automaticamente a resposta do modelo. ' : ''}Preservei os arquivos gerados. ${summary}\n\nA IA ainda não criou src/App.tsx. Os arquivos estão na aba "Arquivos"; peça para continuar a partir deles.`
+            content: entryNotCustomized
+              ? `${autoRepairAttempted ? 'Corrigi automaticamente a resposta do modelo. ' : ''}Preservei os arquivos gerados. ${summary}\n\nA IA não personalizou src/App.tsx nesta resposta; o dashboard-base continua disponível. Peça para adaptar a tela a partir dele.`
               : `${autoRepairAttempted ? 'Corrigi automaticamente a resposta do modelo. ' : ''}Pronto! ${summary}\n\nO projeto usa React + shadcn/ui + Lucide + Recharts. Veja o código na aba "Arquivos". Quando estiver satisfeito, preencha o nome/slug e clique em "Publicar na Hostfy".`,
             files: operations.map(o => o.path),
           },
