@@ -13,11 +13,12 @@ import {
 } from '@primer/octicons-react'
 import {Link, useRouter} from '../router.jsx'
 import {fmtRelative} from '../ui.jsx'
+import palmLogo from '../assets/dark_palm.svg'
 
 export function Wordmark({className}) {
   return (
     <span className={`brand-lockup ${className || ''}`}>
-      <img className="brand-mark" src="/assets/dark_palm.svg" alt="" aria-hidden="true" />
+      <img className="brand-mark" src={palmLogo} alt="" aria-hidden="true" />
       <span className="brand-wordmark">
         <span style={{fontWeight: 550}}>Host</span>
         <span style={{fontWeight: 900}}>fy.</span>
