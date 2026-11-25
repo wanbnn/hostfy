@@ -15,6 +15,11 @@ const { applyPatch } = require('../src/ai-patch');
 const root = path.resolve(__dirname, '..');
 const appFile = content => ({ path: 'src/App.tsx', op: 'update', content });
 const component = title => 'export default function App() { return <h1>' + title + '</h1> }';
+const swapPath = 'src/components/schedule/SwapPanel.tsx';
+const fixedSwap = 'export default function SwapPanel() {\n  return <div className={"p-3 rounded-lg"}>Análise inteligente</div>;\n}';
+const brokenSwap = fixedSwap.replace('}>', '}>}');
+const swapFile = content => ({ path: swapPath, op: 'update', content });
+const swapApp = appFile('import SwapPanel from "./components/schedule/SwapPanel"; export default () => <SwapPanel />');
 
 async function listen(server) {
   server.listen(0, '127.0.0.1');
@@ -89,12 +94,21 @@ test('AI Builder publishes revisions before the model finishes and repairs a bui
       await gate;
       token(res, ',' + JSON.stringify(appFile(component('Etapa final'))) + ']}');
     } else if (prompt.includes('repair fixture')) {
-      const source = prompt.includes('implementação parcial')
+      const source = prompt.includes('Diagnóstico para correção:')
         ? component('Aplicação corrigida')
         : 'import Missing from "./missing"; export default () => <Missing />';
       const entry = JSON.stringify({ operations: [appFile(source)] });
       token(res, entry.slice(0, 53));
       token(res, entry.slice(53));
+    } else if (prompt.includes('retry JSX fixture') || prompt.includes('broken JSX fixture')) {
+      const attempts = prompts.filter(text => text.includes('retry JSX fixture')).length;
+      const source = prompt.includes('retry JSX fixture') && attempts > 2 ? fixedSwap : brokenSwap;
+      token(res, JSON.stringify({ operations: [swapFile(source), swapApp] }));
+    } else if (prompt.includes('manual JSX fixture')) {
+      token(res, JSON.stringify({ operations: [swapFile(fixedSwap)] }));
+    } else if (prompt.includes('incomplete fixture')) {
+      token(res, JSON.stringify({ operations: [appFile(component('Etapa parcial'))] }));
+      res.write('data: ' + JSON.stringify({ choices: [{ finish_reason: 'length' }] }) + '\n\n');
     } else {
       token(res, '{"operations":[{"op":"update","path":"src/App.tsx","content":"');
       return;
@@ -206,6 +220,63 @@ test('AI Builder publishes revisions before the model finishes and repairs a bui
   assert.equal(repairEvents.filter(event => event === 'repair').length, 1);
   assert.equal(repairEvents.filter(event => event === 'preview').length, 1);
   assert.match(prompts.at(-1), /missing/);
+
+  const jsxEvents = [];
+  const jsxResult = await generate({
+    userId: 'test',
+    draftId: 'retry-jsx',
+    description: 'retry JSX fixture',
+    existingFiles: [],
+    signal: new AbortController().signal,
+    send(event) { jsxEvents.push(event); },
+  });
+  assert.equal(jsxResult.ready, true, jsxResult.previewError);
+  assert.equal(jsxEvents.filter(event => event === 'repair').length, 2);
+  assert.match(prompts.at(-1), /A tentativa anterior deixou o código igual/);
+  assert.match(prompts.at(-1), /src\/components\/schedule\/SwapPanel\.tsx:2:\d+/);
+  assert.match(prompts.at(-1), /The character "}" is not valid inside a JSX element/);
+
+  const failed = await generate({
+    userId: 'test',
+    draftId: 'broken-jsx',
+    description: 'broken JSX fixture',
+    existingFiles: [],
+    signal: new AbortController().signal,
+    send() {},
+  });
+  assert.equal(failed.ready, false);
+  assert.equal(failed.previewRepairable, true);
+  assert.match(failed.previewError, /src\/components\/schedule\/SwapPanel\.tsx:2:\d+/);
+  assert.doesNotMatch(failed.previewError, /SecurityWarning: The flag --allow-/);
+  assert.equal(prompts.filter(prompt => prompt.includes('broken JSX fixture')).length, 3);
+
+  const manualDescription = 'manual JSX fixture '.padEnd(4000, 'a');
+  const manuallyRepaired = await generate({
+    userId: 'test',
+    draftId: 'broken-jsx',
+    description: manualDescription,
+    existingFiles: failed.files,
+    previewDiagnostic: failed.previewError,
+    signal: new AbortController().signal,
+    send() {},
+  });
+  assert.ok(prompts.at(-1).includes(failed.previewError));
+  assert.ok(prompts.at(-1).includes(manualDescription));
+  assert.ok(prompts.at(-1).includes(brokenSwap));
+  assert.equal(manuallyRepaired.ready, true, manuallyRepaired.previewError);
+  assert.deepEqual(manuallyRepaired.files.find(file => file.path === swapPath), { path: swapPath, content: fixedSwap });
+
+  const incomplete = await generate({
+    userId: 'test',
+    draftId: 'incomplete',
+    description: 'incomplete fixture',
+    existingFiles: [],
+    signal: new AbortController().signal,
+    send() {},
+  });
+  assert.match(incomplete.generationError, /limite de tokens/);
+  assert.equal(incomplete.previewError, undefined);
+  assert.equal(incomplete.ready, false);
 
   const controller = new AbortController();
   const pending = [];

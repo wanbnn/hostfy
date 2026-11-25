@@ -386,6 +386,7 @@ app.post('/api/ai/generate', requireAuth, rateLimit({ windowMs: 60 * 1000, limit
   const description = String(req.body?.description || '').trim();
   if (!description) return res.status(400).json({ error: 'Descreva o projeto que deseja criar.' });
   if (description.length > 4000) return res.status(400).json({ error: 'Descrição muito longa (máx. 4.000 caracteres).' });
+  const diagnostic = typeof req.body?.previewDiagnostic === 'string' ? req.body.previewDiagnostic.trim() : '';
 
   const draftId = req.body?.draftId;
   if (draftId !== undefined && !aiPreview.validDraftId(draftId)) {
@@ -403,7 +404,7 @@ app.post('/api/ai/generate', requireAuth, rateLimit({ windowMs: 60 * 1000, limit
   res.on('close', () => { if (!res.writableEnded) controller.abort(); });
   if (!wantsStream) {
     try {
-      const operations = await ai.generate({ description, existingFiles, signal: controller.signal });
+      const operations = await ai.generate({ description, existingFiles, diagnostic, signal: controller.signal });
       return res.json({ operations, model: ai.DEFAULT_MODEL });
     } catch (error) {
       if (!controller.signal.aborted) res.status(502).json({ error: error.message });
@@ -433,6 +434,7 @@ app.post('/api/ai/generate', requireAuth, rateLimit({ windowMs: 60 * 1000, limit
         draftId,
         description,
         existingFiles,
+        previewDiagnostic: diagnostic,
         signal: controller.signal,
         send,
       });
@@ -442,6 +444,7 @@ app.post('/api/ai/generate', requireAuth, rateLimit({ windowMs: 60 * 1000, limit
       const operations = await ai.generate({
         description,
         existingFiles,
+        diagnostic,
         signal: controller.signal,
         onContent: token => send('token', { token }),
         onRecovery: error => {

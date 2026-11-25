@@ -113,11 +113,14 @@ async function render(id, files, signal) {
       });
     } catch (error) {
       if (signal.aborted) throw error;
-      const diagnostic = String(error.stderr || '').replaceAll('\\', '/')
+      const diagnostic = String(error.stderr || '')
+        .replaceAll(workspace + path.sep, '')
         .replaceAll(workspace.replaceAll('\\', '/') + '/', '')
         .replace(/\x1b\[[0-9;]*m/g, '')
-        .split(/\r?\n/).filter(line => !/^\s+at |^\(node:\d+\) \[PERM|^\(Use .+--trace-warnings/.test(line))
-        .join('\n').trim().slice(0, 1600);
+        .split(/\r?\n/)
+        .filter(line => !/^\s+at |^\(Use .+--trace-warnings/.test(line))
+        .filter(line => !/^\(node:\d+\) (?:\[PERM|SecurityWarning: The flag --allow-(?:addons|child-process)\b)/.test(line))
+        .join('\n').trim().slice(0, 4000);
       if (!diagnostic || error.killed) {
         throw Object.assign(new Error('O servidor não conseguiu compilar o preview a tempo. Tente atualizar novamente.'), { status: 503 });
       }

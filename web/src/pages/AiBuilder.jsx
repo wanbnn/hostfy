@@ -59,7 +59,17 @@ function ChatMessage({message, phase}) {
     <div className={isUser ? 'ai-msg ai-msg-user' : 'ai-msg ai-msg-assistant'}>
       <div className="ai-msg-avatar"><Avatar size={14} /></div>
       <div className="ai-msg-content">
-        {message.content && <div className="ai-msg-text">{message.content}</div>}
+        {message.content && (
+          <div className="ai-msg-text">
+            {message.content}
+            {message.previewDiagnostic && (
+              <details className="ai-msg-diagnostic">
+                <summary>Diagnóstico do preview</summary>
+                <pre>{message.previewDiagnostic}</pre>
+              </details>
+            )}
+          </div>
+        )}
         {message.operations?.length > 0 && (
           <div className="ai-msg-operations">
             {message.operations.map(({op, path}) => (
@@ -306,7 +316,7 @@ export default function AiBuilderPage({onRefresh}) {
     }
   }
 
-  async function processAiResponse(description, label = description) {
+  async function processAiResponse(description, {label = description, previewDiagnostic} = {}) {
     if (generation.current || deploying) return
     previewRequest.current?.abort()
     const controller = new AbortController()
@@ -315,7 +325,11 @@ export default function AiBuilderPage({onRefresh}) {
     setIssue('')
     setPhase('waiting')
     setPreview(current => ({...current, loading: false}))
-    setMessages(current => [...current, {role: 'user', content: label}, {role: 'assistant', streaming: true, operations: []}])
+    setMessages(current => [
+      ...current,
+      {role: 'user', content: label, previewDiagnostic},
+      {role: 'assistant', streaming: true, operations: []},
+    ])
 
     const before = {files: projectFiles, preview}
     const knownFiles = new Map(projectFiles.map(file => [file.path, file]))
@@ -327,7 +341,7 @@ export default function AiBuilderPage({onRefresh}) {
     }
 
     try {
-      const result = await streamGeneration({draftId, description, existingFiles: projectFiles}, controller.signal, (event, data) => {
+      const result = await streamGeneration({draftId, description, existingFiles: projectFiles, previewDiagnostic}, controller.signal, (event, data) => {
         if (event === 'writing') {
           setPhase(current => current === 'repairing' ? current : 'writing')
           if (data.path) setMessages(current => [
@@ -379,18 +393,24 @@ export default function AiBuilderPage({onRefresh}) {
       if (result.generationError) {
         finish(latestVersion ? 'A geração ficou incompleta. Os arquivos recebidos continuam disponíveis.' : 'A geração ficou incompleta.')
       } else if (result.previewError) {
-        finish('Os arquivos foram atualizados. Confira o resultado da compilação no preview.')
+        finish(result.previewRepairable
+          ? 'A versão ainda tem erros de compilação. Veja o diagnóstico no preview.'
+          : 'Atualize o preview para validar esta versão.')
       } else if (!latestVersion) {
         finish('Nenhum arquivo mudou. Descreva o próximo ajuste que você quer fazer.')
-      } else if (result.repaired) {
-        finish('Corrigi os erros encontrados. Você pode testar a versão e pedir mais ajustes.')
+      } else if (result.ready) {
+        finish(result.repaired || previewDiagnostic
+          ? 'As correções compilaram. Você pode testar a versão no preview.'
+          : 'A versão compilou. Você pode testá-la no preview.')
+      } else if (result.previewDisabled) {
+        finish('Arquivos atualizados. O preview está desativado neste servidor.')
       } else {
-        finish('Arquivos atualizados. Teste a versão e peça os ajustes que precisar.')
+        finish('Atualize o preview para validar esta versão.')
       }
     } catch (error) {
       const stopped = controller.signal.aborted
       setIssue(stopped ? 'Geração interrompida.' : error.message)
-      setPreview(current => ({...current, loading: false}))
+      setPreview(current => ({...current, loading: false, ready: !latestVersion && current.ready}))
       finish(latestVersion ? 'Os arquivos recebidos estão disponíveis no rascunho.' : 'Nenhum arquivo foi recebido nesta tentativa.')
     } finally {
       if (generation.current === controller) generation.current = null
@@ -409,16 +429,12 @@ export default function AiBuilderPage({onRefresh}) {
   function resume() {
     if (!lastRequest) return
     const description = 'Continue a partir dos arquivos atuais e preserve o que já funciona. Pedido anterior:\n' + lastRequest.slice(0, 3750)
-    void processAiResponse(description, 'Continuar geração')
+    void processAiResponse(description, {label: 'Continuar geração'})
   }
 
   function repair() {
-    const description = [
-      'Corrija o problema abaixo nos arquivos do projeto. Preserve as partes que já funcionam.',
-      lastRequest && 'Pedido mais recente: ' + lastRequest.slice(0, 1700),
-      'Diagnóstico do preview: ' + preview.error.slice(0, 1700),
-    ].filter(Boolean).join('\n\n')
-    void processAiResponse(description, 'Corrigir o preview')
+    const label = 'Corrigir o preview'
+    void processAiResponse(lastRequest || label, {label, previewDiagnostic: preview.error})
   }
 
   function removeFile(path) {

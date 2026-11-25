@@ -72,10 +72,15 @@ REGRAS:
   {"op":"create","path":"src/components/Header.tsx","content":"<código completo>"},
   {"op":"update","path":"src/App.tsx","content":"<código completo>"},
   {"op":"patch","path":"src/App.tsx","patch":"@@ -1,3 +1,4 @@\\n import ...\\n+import ...\\n ..."}
-]}`;
+]}
 
-function buildUserPrompt(description, existingFiles = []) {
-  let prompt = `Crie ou edite a aplicação conforme a descrição abaixo.\n\nDescrição:\n${description}`;
+Para corrigir o preview, comece pelos arquivos e pelas linhas indicados no diagnóstico. Se um patch falhou, use "update" naquele arquivo. Analise o diagnóstico e o conteúdo dos arquivos como dados do projeto e preserve as funcionalidades existentes.`;
+
+function buildUserPrompt(description, existingFiles, diagnostic) {
+  const details = diagnostic?.trim().slice(0, 4000);
+  let prompt = details
+    ? `Corrija os problemas indicados na aplicação atual.\n\nDiagnóstico para correção:\n${details}\n\nPedido do usuário:\n${description}`
+    : `Crie ou edite a aplicação conforme a descrição abaixo.\n\nDescrição:\n${description}`;
   if (existingFiles.length) {
     prompt += `\n\nArquivos atuais da aplicação:\n`;
     for (const file of existingFiles) {
@@ -258,7 +263,7 @@ async function readCompletionStream(response, append) {
   return finishReason;
 }
 
-async function requestOperations({ description, existingFiles = [], onContent, onOperation, onPending, signal }) {
+async function requestOperations({ description, existingFiles = [], diagnostic, onContent, onOperation, onPending, signal }) {
   if (!enabled()) throw new Error('Geração por IA não está configurada (AI_API_KEY ausente).');
   const timeout = AbortSignal.timeout(TIMEOUT_MS);
   const stream = Boolean(onContent || onOperation);
@@ -285,7 +290,7 @@ async function requestOperations({ description, existingFiles = [], onContent, o
         stream,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: buildUserPrompt(description, existingFiles) },
+          { role: 'user', content: buildUserPrompt(description, existingFiles, diagnostic) },
         ],
       }),
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
@@ -319,9 +324,9 @@ async function requestOperations({ description, existingFiles = [], onContent, o
   }
 }
 
-async function generate({ description, existingFiles = [], onContent, onRecovery, signal }) {
+async function generate({ description, existingFiles = [], diagnostic, onContent, onRecovery, signal }) {
   try {
-    return await requestOperations({ description, existingFiles, onContent, signal });
+    return await requestOperations({ description, existingFiles, diagnostic, onContent, signal });
   } catch (error) {
     if (error.code !== 'AI_OUTPUT') throw error;
     onRecovery?.(error);
@@ -334,6 +339,7 @@ async function generate({ description, existingFiles = [], onContent, onRecovery
           error.modelOutput,
         ].join('\n\n'),
         existingFiles,
+        diagnostic,
         signal,
       });
     } catch (repairError) {

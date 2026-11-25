@@ -163,6 +163,11 @@
   padding: 10px 12px;
 }
 
+.ai-msg-diagnostic {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
 .ai-msg-files {
   display: flex;
   flex-wrap: wrap;
@@ -412,10 +417,12 @@
   min-width: 0;
 }
 
+.ai-msg-diagnostic summary,
 .ai-preview-error summary {
   cursor: pointer;
 }
 
+.ai-msg-diagnostic pre,
 .ai-preview-error pre {
   max-height: 96px;
   margin: 6px 0 0;
